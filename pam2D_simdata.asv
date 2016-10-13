@@ -244,14 +244,15 @@ for mm=1:ss(1)
     % Convert P into K-space
     P=fftshift(fft(P));
     
-    % Image reconstruction algorithm -------------
+    % image reconstruction algorithm
     dx = x(2)-x(1);
-    dk = 2.*pi./dx; % Wavenumber increment by 2*pi
-    startValue = ( -floor( length(x)/2 ) );
-    endValue = ( ceil( length(x)/2 ) - 1 );
+    dk = 1./dx; % Wavenumber increment by 2*pi
+    startValue = ( -floor( length(x)/2 ) )./length(x);
+    endValue = ( ceil( length(x)/2 ) - 1 )./length(x);
     
     % Create wavenumber vector
-    k = (startValue:endValue).*dk./length(x);
+    k_test = 2.*pi.*(startValue:endValue).*dk;
+    k=2*pi*(-floor(length(x)/2):ceil(length(x)/2)-1)/(x(2)-x(1))/length(x);
     
     % Initialize array to hold final image
     asa = zeros( length(z), pchannels);
