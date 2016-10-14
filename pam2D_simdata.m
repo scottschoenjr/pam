@@ -228,7 +228,7 @@ p=rfasa';
 % Take the FFT of the padded data on each channel
 aa1=(fft(p));
 
-% Now for each frequency bin
+% Now for each spatial frequency bin
 for mm=1:ss(1)
     
     % Get the center frequency
@@ -246,7 +246,7 @@ for mm=1:ss(1)
     
     % Image reconstruction algorithm -------------
     dx = x(2)-x(1);
-    dk = 2.*pi./dx; % Wavenumber increment by 2*pi
+    dk = 2.*pi./dx; % Wavenumber increment
     startValue = ( -floor( length(x)/2 ) );
     endValue = ( ceil( length(x)/2 ) - 1 );
     
@@ -267,6 +267,9 @@ for mm=1:ss(1)
     
     % Get the wavenumber in the propagation direction
     kz = sqrt( w.^(2)./c.^(2) - kv.^(2) );
+    
+    % Apply shift to data  and take inverse transform to recover field at
+    % source plane
     asa = ifft( ...
         ifftshift( Pv.*exp(1j.*kz.*zv'), 2),[],2 ...
         );
