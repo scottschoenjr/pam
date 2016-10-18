@@ -51,45 +51,81 @@ rfdata = squeeze( ...
     data.aedata(xReceiverPosition, :, :) );
 
 % Get the size of the received US data array. This array has dimension:
-%  (y-index of sensor) by (time index)
+%  (index of sensor) by (time index)
 ss = size(rfdata);
+numSensors = ss(1);
+numTimeSteps = ss(2);
 
 % Set the number of receiving channels
 channels = 64*2;
 
 % Now resample the data for that number of sensors.
-xtr = dx*(channels*floor(ss(1)/channels)); % Width of "sensor" [mm]
+xtr = dx*(channels*floor(numSensors/channels)); % Width of "sensor" [mm]
+
+% What are these?
 rcn_x1 = 10;
-rcn_x2 = size(rfdata, 2);
-lft_el = -xtr/2;
-rght_el = xtr/2;
+rcn_x2 = numTimeSteps;
+
+% Get the location of the left and right bounds of the field
+lft_el = -xtr/2; % [mm]
+rght_el = xtr/2; % [mm]
 step = 0.5;%in images is 0.5;
 near_coor = 0;
 far_coor = dx*data.yDim;
 
 %% Bin the data
+
+% Get the data starting rcn_x1 steps in
 rf128 = rfdata(:, rcn_x1:end );
-rf = zeros( channels, ss(2) - rcn_x1 + 1 );
+
+% Initialize array to hold re-sampled data
+rf = zeros( channels, numTimeSteps - rcn_x1 + 1 );
+
+% If we're binning the data
 if bin == 'y'
-    for jj=1:channels
-        rf(jj,:)=sum(rf128((floor(ss(1)/channels))*(jj-1)+1:(floor(ss(1)/channels))*jj,:));
+    
+    % For each channel
+    for jj = 1:channels
+        
+        % Find the channels of the original data that will be all grouped
+        % into the new channel jj
+        startChannel = (floor(numSensors/channels))*(jj-1) + 1;
+        endChannel = (floor(numSensors/channels))*jj;
+        
+        % Assign to binned data array
+        rf(jj,:) = sum( ...
+            rf128(startChannel:endChannel, :) ...
+            );
+        
     end
-    rf1=rf./sqrt(floor(ss(1)/channels));%correct for different binning
+    
+    % Correct for different binning
+    rf1 = rf./sqrt(floor(ss(1)/channels));
+    
 else
-    if deld<(floor(ss(1)/channels))+1
-        for jj=1:channels
-            rf(jj,:)=sum(rf128((floor(ss(1)/channels))*(jj-1)+1:(floor(ss(1)/channels))*(jj-1)+deld+1,:));
+    
+    if deld < (floor(numSensors/channels)) + 1
+        for jj = 1:channels
+            
+            % Get sensor data to be collected together into channel jj
+            startChannel = (floor(numSensors/channels))*(jj-1) + 1;
+            endChannel = (floor(numSensors/channels))*(jj-1) + deld + 1;
+            rf(jj,:) = sum(rf128(startChannel:endChannel,:));
         end
     else
-        disp [deld is too large]
+        disp( 'deld is too large.' );
     end
-    rf1=rf./deld;%correct for different binning
+    
+    % Correct for different binning
+    rf1 = rf./deld;
+    
 end
 
-%% add noise to the rf data and display them
-rf=0.0*rf1;
-for mm=1:channels
-    rf(mm,:)=awgn(rf1(mm,:),120);%120 no noise; 58/62 high noise
+%% Add noise to the rf data and display them
+rf = 0.0*rf1;
+for mm = 1:channels
+    SNR = 120; % [dB] 120 - Almost no noise, 58/62 - High noise
+    rf(mm, :) = addGaussianWhiteNoise(rf1(mm,:),SNR);
 end
 
 figure (10)

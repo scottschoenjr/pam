@@ -1,15 +1,24 @@
 %**************************************************************************
 %
-% Get Distance to Voxel
+% Get Delays
 %
-%   Function returns the distance between the input position and the 
+%   Function returns the delays between for the input position and ray
+%   object.
 %
-%measures the distances of the elements from the image coordinates and
-% converts them to wavelength in order to determine the number of delays 
+% Inputs
+%   pos
+%   ray
+%
+% Output
+%   dels
+%
+%
+%**************************************************************************
 
 
 function dels = zzpos2del(pos,ray)
 
 dels = round( ...
     sqrt(sum((ones(64,1) * pos -ray.r).^2,2)) * ray.fs/ray.c)';
+end
 
