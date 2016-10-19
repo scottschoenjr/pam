@@ -29,7 +29,7 @@ pchannels = 4*128;
 stps = 128;
 
 %% Set parameters
-bin = 'n';
+bin = 'y';
 deld = 1;
 numTargets = data.trgt; % Number of targets
 dx = data.dx*1E3; % Element spacing [mm]
@@ -39,7 +39,8 @@ c = 1482; % [m/s]
 rho0 = 998; % [kg/m^3]
 
 % Set location of the probe [mm]
-loc = dx*(data.yDim - 5) - data.excit_loc(numTargets,2,1)*dx;
+offset = data.excit_loc(numTargets,2,1)*dx; 
+loc = dx*(data.yDim - 5) - offset;
 
 % Compute the time step
 dt =data.t(2) - data.t(1); % [s]
@@ -47,6 +48,7 @@ t = data.t; % Time vector [s]
 
 % Get the received data for a row of points at the desired x-location
 xReceiverPosition = data.excit_loc(numTargets,1,1);
+xReceierPosition = 0;
 rfdata = squeeze( ...
     data.aedata(xReceiverPosition, :, :) );
 
@@ -57,7 +59,7 @@ numSensors = ss(1);
 numTimeSteps = ss(2);
 
 % Set the number of receiving channels
-channels = 64*2;
+channels = 150;
 
 % Now resample the data for that number of sensors.
 xtr = dx*(channels*floor(numSensors/channels)); % Width of "sensor" [mm]
@@ -149,6 +151,10 @@ ylabel('Distance [mm]', 'FontSize', 14);
 xlabel('Time [\mus]','FontSize', 14);
 % zlabel( 'Pressure [Pa]','FontSize', 14);
 colormap([0, 0, 0]);
+set( gca, ...
+    'ZTick', [], ...
+    'CameraPosition', [18, -300, 0.045] ...
+    );
 
 %% power spectrum estimation
 Ndata=length(rf);
@@ -182,7 +188,7 @@ xlength1 = xtr*1E-3;
 xlength = pchannels*xlength1/channels;
 x = linspace( -xlength/2, xlength/2, pchannels );%for frequency sweep video
 
-% Set up harminic frequency bins
+% Set up harmonic frequency bins
 [~,h1] = min( abs(frqax - 2.8E5) );
 [~,h2] = min( abs(frqax - 14.8E5) );
 fbins = (h1:h2)';
@@ -195,6 +201,8 @@ t = data.t; % Time vector [s]
 % Create frequency vector
 Fs = 1./dt; % Sampling frequency [Hz]
 fk = Fs.*linspace(0,1,length(rf));
+
+% Time ASA computation
 tic
 
 % Get the padded RF data into the appropriate dimension
@@ -204,7 +212,7 @@ p=rfasa';
 aa1=(fft(p));
 
 % Now for each spatial frequency bin
-for mm=1:ss(1)
+for mm = 1:ss(1)
     
     % Get the center frequency
     fc = frqax(fbins(mm)); % [Hz]
@@ -228,7 +236,7 @@ for mm=1:ss(1)
     % Create wavenumber vector
     k = (startValue:endValue).*dk./length(x);
     
-    % Initialize array to hold final image
+    % Initialize array to hold contribution to image for this channel
     asa = zeros( length(z), pchannels);
     
     %     for lp=1:length(z)
@@ -259,12 +267,22 @@ toc
 
 %% Plot
 figure()
+hold all;
 
 asim = imrotate(asamap,-90);
-imagesc(-z*1000,x*1000,flip(asim,2));title('AS-PAM','FontWeight','bold')
+imagesc(-z*1000,x*1000,flip(asim,2));
 axis image
-% colormap jet;
-ylabel('Transeverse [mm]','FontWeight','bold')
-xlabel('Axial [mm]','FontWeight','bold')
-ylim([-30,30])
+title('Angular Spectrum Reconstruction', 'FontSize', 18)
+ylabel('Transeverse [mm]', 'FontSize', 16)
+xlabel('Axial [mm]', 'FontSize', 16)
+% ylim([-30,30])
 caxis([0 max(max(asim))])
+
+% Plot bubble positions
+for sourceCount = 1:numTargets
+    yIndex = data.excit_loc( sourceCount, 2 );
+    yPos = yIndex.*dx.*1E3;
+    zIndex = data.excit_loc( sourceCount, 3 );
+    zPos = -zIndex.*dx.*1E3;
+    plot(yPos, zPos, 'ro' );
+end

@@ -4,7 +4,7 @@ close all;
 clear all;
 %% parameters and constants
 sourceFile = ...
-    '../data/waterdata2lambda_5Bubbles_yz.mat';
+    '../data/waterdata2lambda_5Bubbles_z.mat';
 data = load(sourceFile);
 % trgt=data.trgt;
 trgt=4;
