@@ -19,7 +19,7 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/waterdata2lambda_5Bubbles_z.mat';
+    '../data/waterdata2lambda_2Bubbles_z.mat';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -43,7 +43,7 @@ offset = data.excit_loc(numTargets,2,1)*dx;
 loc = dx*(data.yDim - 5) - offset;
 
 % Compute the time step
-dt =data.t(2) - data.t(1); % [s]
+dt = data.t(2) - data.t(1); % [s]
 t = data.t; % Time vector [s]
 
 % Get the received data for a row of points at the desired x-location
@@ -225,10 +225,10 @@ for mm = 1:ss(1)
     P = aa1(ff+1,:);
     
     % Convert P into K-space
-    P=fftshift(fft(P));
+    P = fftshift(fft(P));
     
     % Image reconstruction algorithm -------------
-    dx = x(2)-x(1);
+    dx = x(2) - x(1);
     dk = 2.*pi./dx; % Wavenumber increment
     startValue = ( -floor( length(x)/2 ) );
     endValue = ( ceil( length(x)/2 ) - 1 );
@@ -275,14 +275,18 @@ axis image
 title('Angular Spectrum Reconstruction', 'FontSize', 18)
 ylabel('Transeverse [mm]', 'FontSize', 16)
 xlabel('Axial [mm]', 'FontSize', 16)
-% ylim([-30,30])
+ylim([-30,30])
 caxis([0 max(max(asim))])
 
 % Plot bubble positions
+xLength = round( length( data.xDim )./2 );
+xVector_mm = linspace( -xLength, xLength, 2*xLength ).*dx.*1E3;
+yLength = round( length( data.yDim )./2 );
+yVector_mm = linspace( -yLength, yLength, 2*yLength ).*dx.*1E3;
 for sourceCount = 1:numTargets
     yIndex = data.excit_loc( sourceCount, 2 );
-    yPos = yIndex.*dx.*1E3;
+    yPos = yVector_mm( yIndex );
     zIndex = data.excit_loc( sourceCount, 3 );
     zPos = -zIndex.*dx.*1E3;
-    plot(yPos, zPos, 'ro' );
+    plot(xPos, yPos, 'ro' );
 end

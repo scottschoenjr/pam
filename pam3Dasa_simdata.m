@@ -4,10 +4,10 @@ close all;
 clear all;
 %% parameters and constants
 sourceFile = ...
-    '../data/waterdata2lambda_5Bubbles_z.mat';
+    '../data/waterdata2lambda_2Bubbles_z.mat';
 data = load(sourceFile);
 % trgt=data.trgt;
-trgt=4;
+trgt=2;
 dx=data.dx*1e3;%elements distance in [mm]
 % c = mean(data.domain.ctot(data.excit_loc(1,1),data.excit_loc(1,2):end));% the images is the same for all simulations
 c =1480;% % Speed of Sound [m/s]
