@@ -19,13 +19,12 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/waterdata2lambda_2Bubbles_z.mat';
+    '../data/waterdata2lambda_5Bubbles_z.mat';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
-
 % Set up number of channels
-pchannels = 4*128;
+pchannels = 16*128; % Number of padding channels
 stps = 128;
 
 %% Set parameters
@@ -59,7 +58,7 @@ numSensors = ss(1);
 numTimeSteps = ss(2);
 
 % Set the number of receiving channels
-channels = 150;
+channels =160;
 
 % Now resample the data for that number of sensors.
 xtr = dx*(channels*floor(numSensors/channels)); % Width of "sensor" [mm]
@@ -125,9 +124,9 @@ end
 
 %% Add noise to the rf data and display them
 rf = 0.0*rf1;
-for mm = 1:channels
+for fCount = 1:channels
     SNR = 120; % [dB] 120 - Almost no noise, 58/62 - High noise
-    rf(mm, :) = addGaussianWhiteNoise(rf1(mm,:),SNR);
+    rf(fCount, :) = addGaussianWhiteNoise(rf1(fCount,:),SNR);
 end
 
 % Plot received data
@@ -165,7 +164,7 @@ Fs = 1/(dt.*1E3);
 frqax = (0:Ndata/2-1).*Fs;
 
 subplot(2,1,2)
-plot(frqax./1E6, psd)
+plot(frqax./1E6, psd, 'k')
 xlim([0,2])
 ylabel('Intensity [AU]', 'FontSize', 14)
 xlabel('Frequency [MHz]', 'FontSize', 14)
@@ -189,9 +188,9 @@ xlength = pchannels*xlength1/channels;
 x = linspace( -xlength/2, xlength/2, pchannels );%for frequency sweep video
 
 % Set up harmonic frequency bins
-[~,h1] = min( abs(frqax - 2.8E5) );
-[~,h2] = min( abs(frqax - 14.8E5) );
-fbins = (h1:h2)';
+[~, minIndex] = min( abs(frqax - 2.8E5) );
+[~, maxIndex] = min( abs(frqax - 14.8E5) );
+fbins = (minIndex:maxIndex)';
 ss = size(fbins);
 
 % Get time step and vector
@@ -200,7 +199,7 @@ t = data.t; % Time vector [s]
 
 % Create frequency vector
 Fs = 1./dt; % Sampling frequency [Hz]
-fk = Fs.*linspace(0,1,length(rf));
+fk = Fs.*linspace(0, 1, length(rf));
 
 % Time ASA computation
 tic
@@ -209,23 +208,23 @@ tic
 p=rfasa';
 
 % Take the FFT of the padded data on each channel
-aa1=(fft(p));
+pTilde=(fft(p));
 
-% Now for each spatial frequency bin
-for mm = 1:ss(1)
+% Now for each frequency bin
+for fCount = 1:ss(1)
     
     % Get the center frequency
-    fc = frqax(fbins(mm)); % [Hz]
-    w = 2*pi*fc; % [rad/s]
+    fc = frqax( fbins(fCount) ); % [Hz]
+    omega = 2*pi*fc; % [rad/s]
     
     % ff the data at fc
     [zz, ff] = min( abs(fk-fc) );
     
     % Get complex data at fc for each channel - CC based on single FFT outside loop
-    P = aa1(ff+1,:);
+    pTilde_loop = pTilde(ff+1, :);
     
-    % Convert P into K-space
-    P = fftshift(fft(P));
+    % Compute angular spectrum
+    A_pTilde = fftshift(fft(pTilde_loop));
     
     % Image reconstruction algorithm -------------
     dx = x(2) - x(1);
@@ -236,7 +235,7 @@ for mm = 1:ss(1)
     % Create wavenumber vector
     k = (startValue:endValue).*dk./length(x);
     
-    % Initialize array to hold contribution to image for this channel
+    % Initialize array to hold contribution to image for this bin
     asa = zeros( length(z), pchannels);
     
     %     for lp=1:length(z)
@@ -244,12 +243,16 @@ for mm = 1:ss(1)
     %     end;
     
     % vectorized version
-    Pv = repmat(P,length(z),1); %128x512
-    kv = repmat(k,length(z),1); %128x512
-    zv = repmat(z,length(x),1); %128x512
+    Pv = repmat(A_pTilde, length(z), 1); %128x512
+    kv = repmat(k, length(z), 1); %128x512
+    zv = repmat(z, length(x), 1); %128x512
+    
+    %%%%%%%% DEBUG %%%%%%%%
+    alpha = 0.1; % [Np/m]
+    %%%%%%%%%%%%%%%%%%%%%%%
     
     % Get the wavenumber in the propagation direction
-    kz = sqrt( w.^(2)./c.^(2) - kv.^(2) );
+    kz = sqrt( (omega.^(2)./c^(2)) - kv.^(2) ) - 1j.*alpha;
     
     % Apply shift to data  and take inverse transform to recover field at
     % source plane
@@ -262,31 +265,93 @@ for mm = 1:ss(1)
     
     % Add contribution of this spatial frequency bin
     asamap = asamap + asa;
+    
+    %%%%%%%% DEBUG %%%%%%%
+%     figure(998)
+%     set(gcf, 'Position', [50, 100, 500, 400] );
+%     pch = pcolor( real( sin( );
+%     set( pch, 'EdgeColor', 'none' );
+%     colorbar;
+    
+    figure(999)
+    set(gcf, 'Position', [600, 100, 500, 400] );
+    pch = pcolor(asamap);
+    set( pch, 'EdgeColor', 'none' );
+    pause(0.15);
+    %%%%%%%%%%%%%%%%%%%%%
+    
 end
 toc
 
 %% Plot
+
+% Get angular spectrum map to plot
+asim = imrotate(asamap,-90);
+asaPlotData = flip(asim,2);
+
+axialSlicePos = 34; %34; % [mm]
+transSlicePos = -0.5; % [mm]
+
+axialLimits = [-60, 0]; % [mm]
+transLimits = [-30, 30]; % [mm]
+
+% Get slices to plot cross-sections
+axialIndex = find( z*1000 > axialSlicePos, 1);
+transIndex = find( x*1000 > transSlicePos, 1);
+
+axialSlice = asaPlotData( transIndex, :  );
+% axialSlice = sum( asaPlotData, 1 );
+axialSliceNorm = axialSlice./max(abs(axialSlice));
+transSlice = asaPlotData( :, axialIndex );
+% transSlice = sum( asaPlotData, 2 );
+transSliceNorm = transSlice./max(abs(transSlice));
+
+% Get vectors to plot positions of cross-section
+xAxialSlice = [ -z(axialIndex), -z(axialIndex) ]*1000;
+yAxialSlice = [ -1E6, 1E6 ];
+xTransSlice = [ -1E6, 1E6 ];
+yTransSlice = [ x(transIndex), x(transIndex) ]*1000;
+
+% Create plot
 figure()
+set(gcf, 'Position', [50, 50, 1100, 850] );
 hold all;
 
-asim = imrotate(asamap,-90);
-imagesc(-z*1000,x*1000,flip(asim,2));
+% Create axis for 2D plot
+ax2D = gca;
+set( ax2D, 'Position', [0.02, 0.3, 0.7, 0.65] );
+
+imagesc(-z*1000, x*1000, asaPlotData);
+plot(xAxialSlice, yAxialSlice, '--w');
+plot(xTransSlice, yTransSlice, '--w');
+set( ax2D, 'XTickLabel', '' );
+
 axis image
 title('Angular Spectrum Reconstruction', 'FontSize', 18)
-ylabel('Transeverse [mm]', 'FontSize', 16)
-xlabel('Axial [mm]', 'FontSize', 16)
-ylim([-30,30])
-caxis([0 max(max(asim))])
+ylabel('Transeverse [mm]', 'FontSize', 16);
+xlim(axialLimits);
+ylim(transLimits);
+caxis([0 max(max(asim))]);
+% 
+% % Plot bubble positions
+% for sourceCount = 1:numTargets
+%     xIndex = data.excit_loc( sourceCount, 2 );
+%     xPos = x( xIndex );
+%     zIndex = data.excit_loc( sourceCount, 3 );
+%     zPos = -z( zIndex );
+%     plot(zPos, xPos, 'ro' );
+% end
 
-% Plot bubble positions
-xLength = round( length( data.xDim )./2 );
-xVector_mm = linspace( -xLength, xLength, 2*xLength ).*dx.*1E3;
-yLength = round( length( data.yDim )./2 );
-yVector_mm = linspace( -yLength, yLength, 2*yLength ).*dx.*1E3;
-for sourceCount = 1:numTargets
-    yIndex = data.excit_loc( sourceCount, 2 );
-    yPos = yVector_mm( yIndex );
-    zIndex = data.excit_loc( sourceCount, 3 );
-    zPos = -zIndex.*dx.*1E3;
-    plot(xPos, yPos, 'ro' );
-end
+% To the right of colorplot
+transverseAxes = axes( 'Position', [0.65, 0.3, 0.21, 0.65] );
+plot(transSliceNorm, x*1000, 'k');
+xlim([0, 1]);
+ylim(transLimits);
+set(gca, 'YAxisLocation', 'right' );
+
+% Below colorplot
+axialAxes = axes( 'Position', [0.12, 0.08, 0.5, 0.2] );
+plot(-z*1000, axialSliceNorm, 'k');
+xlim(axialLimits);
+ylim([0, 1]);
+xlabel('Axial Position [mm]', 'FontSize', 16);

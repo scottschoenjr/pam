@@ -12,8 +12,6 @@
 %   201607XX   Calum Crake       Added frequency domain method
 %   201612XX   Scott Schoen Jr   Cleanup and documentatioin; repurposing to
 %                                ASA-specific processes.
-%   201701XX   Scott Schoen Jr   New version to average sound speed and
-%                                propagate in steps
 %
 % 
 %**************************************************************************
@@ -35,8 +33,12 @@ disp(['               ...done (', num2str(toc), ' s).' ] )
 
 %% Set parameters
 
-% Set number of layers to divide up field into
-numLayers = 16;
+% Set sound speed method to use
+% 0 - Nothing, just use uniform c
+% 1 - Account for layer (see that code to adjust parameters
+% 2 - Use Averaged (in z) sound speed
+% 3 - Use stratified medium result (once it works...)
+soundSpeedMethod = 2;
 
 bin = 'y';
 deld = 2;
@@ -131,13 +133,42 @@ else
     
 end
 
-%% Get frequency parameters
+%% Add noise to the rf data and display them
+rf = rf1;
+% for mm = 1:channels
+%     SNR = 120; % [dB] 120 - Almost no noise, 58/62 - High noise
+%     rf(mm, :) = addGaussianWhiteNoise(rf1(mm,:),SNR);
+% end
+
+% Plot raw data and power spectrum
+figure (10)
+
+subplot(1,2,1)
+[tColorPlot, yColorPlot] = meshgrid( t, y );
+pcolor( tColorPlot.*1E6, yColorPlot.*1E3, arrayData );
+shading flat;
+
+ylabel('Position [mm]' )
+xlabel('Time [$\mu$s]')
+cdHandle = colorbar;
+ylabel(cdHandle, 'Pressure [Pa]', 'Interpreter', 'latex')
+
+% Power spectrum at center channel
 centerChannelIndex = round( numSensors./2 );
+spectrumAmplitude = abs( fft( arrayData(centerChannelIndex, :) ) );
+powerSpectrumNorm = ( spectrumAmplitude./max( spectrumAmplitude ) ).^(2);
 
 Fs = 1./dt;
 df = Fs./numTimeSteps;
 fVector = 0 : df : ( numTimeSteps - 1 ).*df;
 halfwayIndex = floor( numTimeSteps )./2;
+
+subplot(1,2,2)
+plot(fVector(1:halfwayIndex)./1E6, powerSpectrumNorm(1:halfwayIndex), 'k' );
+ylim([0, 1]);
+xlim([0, 5]);
+ylabel('Normalized Power','FontWeight','bold');
+xlabel('Frequency [MHz]','FontWeight','bold');
 
 %% Compute Field with Angular Spectrum Approach
 
@@ -199,6 +230,29 @@ for fCount = 1:ss(1)
     fc = fVector(fbins(fCount)); % [Hz]
     omega = 2*pi*fc; % [rad/s]
     
+    % If the averaged sound speed is to be used, calculate it here
+    if soundSpeedMethod == 2
+        
+        % Get simulation data
+        cField = data.c; % Total field
+        sourcePositions = data.sourcePositions; % Position of sources
+        zStart = min( sourcePositions( 1, : ) ); % Position of leftmost
+        zEnd = data.recPosition; % Position of receiver
+        
+        % Get z-indidces of data to keep
+        startIndex = find( data.xPositionVector > zStart, 1 );
+        endIndex = find( data.xPositionVector > zEnd, 1 );
+        
+        % Get portion of cField and average it
+        cField = cField( :, startIndex : endIndex );
+        cFieldMeanPlane = mean( cField, 1 ); % Get the average sound speed in each plane
+        cMean = mean( cFieldMeanPlane ); % Get the average of all planes
+
+        % Set sound speed to this average
+        c = cMean;
+        
+    end
+    
     % ff the data at fc
     [zz, ff] = min( abs(fk-fc) );
     
@@ -240,14 +294,7 @@ for fCount = 1:ss(1)
         ifftshift( Pv.*exp(1j.*kz.*zv'), 2), [], 2 ...
         );
     
-    % Partition the sound speed field into a series of layers
-    endIndices = (length(z)./numLayers).*( 1 : numLayers );
-    for layerCount = 1 : numLayers
-        
-        minIndex = maxIndex;
-        
-    end
-    
+    % If we're propagating to single layer...
     if soundSpeedMethod == 1
        
         % Layer Properties ---------------------

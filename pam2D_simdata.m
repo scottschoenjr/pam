@@ -24,7 +24,7 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/waterdata2lambda_5Bubbles_z.mat';
+    '../data/results/oneBubble/stratifiedMedium_200mps_025mm_1bub.mat';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 

@@ -241,10 +241,12 @@ for fCount = 1:ss(1)
         );
     
     % Partition the sound speed field into a series of layers
-    endIndices = (length(z)./numLayers).*( 1 : numLayers );
+    zIndexVector = (length(z)./numLayers).*( 1 : numLayers );
+    zIndexVector(end) = length(z); % Don't overshoot end
     for layerCount = 1 : numLayers
         
-        minIndex = maxIndex;
+        % Get z-indices for this layer
+        ind0 = 
         
     end
     
