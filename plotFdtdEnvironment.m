@@ -12,7 +12,7 @@
 function [] = plotFdtdEnvironment( dataFile ) 
 
 % Simulation parameters
-recPosition = 75E-3; % Distance from x = 0 [m]
+recPosition = 100E-3; % Distance from x = 0 [m]
 
 % Define sources
 % sourcePositions = [ ... % (x, y) positions [m]

@@ -27,7 +27,7 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/stratifiedMedium_sqrt_4000mps_1bub_rec100mm';
+    '../data/results/oneBubble/skullData_1bub_3MHz_rec75mm';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -198,8 +198,8 @@ xlength = totalChannels*channelWidth_mm/channels;
 x = linspace( -xlength/2, xlength/2, totalChannels );%for frequency sweep video
 
 % Set up harminic frequency bins
-fMin = 2.8E5; % [Hz]
-fMax = 14.8E5; % [Hz]
+fMin = 0.28E6; % [Hz]
+fMax = 1.48E6; % [Hz]
 [~,h1] = min( abs(fVector - fMin) );
 [~,h2] = min( abs(fVector - fMax) );
 fbins = (h1:h2)';
@@ -234,18 +234,39 @@ for fCount = 1:ss(1)
     if soundSpeedMethod == 2
         
         % Get simulation data
-        cField = data.c; % Total field
+        dataC = data.c; % Total field
         sourcePositions = data.sourcePositions; % Position of sources
-        zStart = min( sourcePositions( 1, : ) ); % Position of leftmost
-        zEnd = data.recPosition; % Position of receiver
+        zStart = data.recPosition - z(end); % Position of leftmost
+        zEnd = data.recPosition - z(1); % Position of receiver
         
         % Get z-indidces of data to keep
-        startIndex = find( data.xPositionVector > zStart, 1 );
-        endIndex = find( data.xPositionVector > zEnd, 1 );
+        dataZ = data.xPositionVector;
+        zStartIndex = find( dataZ > zStart, 1 );
+        zEndIndex = find( dataZ > zEnd, 1 );
         
         % Get portion of cField and average it
-        cField = cField( :, startIndex : endIndex );
-        cFieldMeanPlane = mean( cField, 1 ); % Get the average sound speed in each plane
+        cField = dataC( :, zStartIndex : zEndIndex );
+        % Average sound speed in each plane
+        cFieldMeanPlane = mean( cField, 1 ); 
+        % Average sound speed in each plane, interpolated to the
+        % appropriate length
+        numPointsRaw = zEndIndex - zStartIndex + 1; % Points in data
+        rawPoints = linspace(0, 1, numPointsRaw);
+        numPointsInterp = length(z); % Number of points to interpolate to
+        interpPoints = linspace(0, 1, numPointsInterp );
+        cFieldMeanPlaneInterp = interp1( ...
+            rawPoints, cFieldMeanPlane, interpPoints );  
+        
+        % New averaging...
+        % cProfile contains the average sound speed from the first to the
+        % current entry [e.g., cProfile(10) = mean(cFieldMeanPlane(1:10))]
+        cProfile = meanOfPreviousEntries( cFieldMeanPlaneInterp );
+        % But since we're measuring from back from the receiver array, we
+        % have to flip the profile lengthwise
+        cProfile = fliplr( cProfile );
+        % Repeat the profile along x for ASA reconstruction
+        c = ( repmat(cProfile, [length(x), 1]) )';
+        
         cMean = mean( cFieldMeanPlane ); % Get the average of all planes
 
         % Set sound speed to this average
@@ -298,7 +319,7 @@ for fCount = 1:ss(1)
     if soundSpeedMethod == 1
        
         % Layer Properties ---------------------
-        layerStart = 7; % [mm], from receiver;
+        layerStart = 32; % [mm], from receiver;
         layerThickness = 4; % [mm]
         layerC = 3000; % [m/s]
         %----------------------------------------
@@ -478,7 +499,7 @@ xlim( [0, 80] );
 xlabel( 'Distance from Receiver [mm]' );
 ylabel( 'Sensor Position [mm]' );
 
-caxis([0, 4E4]);
+% caxis([0, 3E5]);
 
 cBarHandle = colorbar;
 

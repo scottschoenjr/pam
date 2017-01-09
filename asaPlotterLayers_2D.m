@@ -29,14 +29,23 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/stratifiedMedium_sqrt_4000mps_1bub_rec100mm';
+    '../data/results/oneBubble/skullData_1bub_3MHz_rec75mm';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
 %% Set parameters
 
 % Set number of layers to divide up field into
-numLayers = 16;
+% Start positions of layers. Set this to 0 to divide evenly into the
+% desired number of layers
+% layerPositions = [0, 22.5:0.5:24, 24.5:32, 32:0.5:40, 40.5:2:79 ]; % Skull 100 [mm]
+layerPositions = [25:32, 32.5:0.5:38, 39:2:81, 81.5:0.5:85.5, 86:2:103 ] - 25; % Skull 75 [mm]
+% layerPositions = [0:10:30, 35:5:50, 52.5:2.5:55, 56:1:57, 58:0.4:60.5, 75]; % Stratified [mm]
+% layerPositions = [0, 32.1, 35.9 ]; % Layer [mm]
+% layerPositions = [0, 27.1, 29.9, 34.1, 35.9 ]; % 2 Layers [mm]
+numLayers = length(layerPositions);
+
+overPlotLayers = 0; % plot layers on top of reconstruction
 
 bin = 'y';
 deld = 2;
@@ -167,8 +176,8 @@ xlength = totalChannels*channelWidth_mm/channels;
 x = linspace( -xlength/2, xlength/2, totalChannels );%for frequency sweep video
 
 % Set up harminic frequency bins
-fMin = 2.8E5; % [Hz]
-fMax = 14.8E5; % [Hz]
+fMin = 0.28E6; % [Hz]
+fMax = 1.48E6; % [Hz]
 [~,h1] = min( abs(fVector - fMin) );
 [~,h2] = min( abs(fVector - fMax) );
 fbins = (h1:h2)';
@@ -191,6 +200,41 @@ paddedArrayDataTilde = fft(paddedArrayData);
 
 % Time reconstruction
 tic
+
+% Initialize array to hold final image
+asamap = zeros( length(z), totalChannels);
+
+% Compute average sound speed at each point on the reconstruction z vector
+dataC = data.c; % As a function of z *from left* (not receiver!)
+dataZ = data.xPositionVector; % [m]
+
+% Slice out the portion between the array and the greatest depth
+zStartIndex = find( ... % Will fail if z depth too big
+    dataZ > (data.recPosition - z(end)), 1 );
+zEndIndex = find( ...
+    dataZ > (data.recPosition - z(1)), 1 );
+
+% Get the average sound speed in each plane (at each z)
+axialInd0 = 1;
+axialInd1 = length(x);
+% axialInd0 = round( length(x)./2 - length(x)./6 );
+% axialInd1 = round( length(x)./2 + length(x)./6 );
+cFieldMeanPlane = mean( ...
+    dataC( axialInd0 : axialInd1, zStartIndex : zEndIndex ), 1 );
+
+% Flip data, since reconstruction measures back from receiver
+clippedC = fliplr( cFieldMeanPlane );
+
+% Now just interpolate c at the values in z (instead of clippedZ )
+numPointsRaw = zEndIndex - zStartIndex + 1; % Points in data
+rawPoints = linspace(0, 1, numPointsRaw);
+numPointsInterp = length(z); % Number of points to interpolate to
+interpPoints = linspace(0, 1, numPointsInterp );
+interpolatedC = interp1( rawPoints, clippedC, interpPoints );
+
+% Initialize layer property vectors
+zCenterEachLayer = zeros(1, numLayers);
+cEachLayer = zeros(1, numLayers);
 
 % Now for each frequency bin
 for fCount = 1:ss(1)
@@ -217,165 +261,84 @@ for fCount = 1:ss(1)
     % Create wavenumber vector
     k = (startValue:endValue).*dk./length(x);
     
-    % Initialize array to hold final image
-    asa = zeros( length(z), totalChannels);
+    % Partition the sound speed field into a series of layers and perform
+    % the propagation through each
     
-    %     for lp=1:length(z)
-    %         asa(lp,:)=(ifft(ifftshift(P.*exp(1i.*(z(lp)).*sqrt(w.^2./c.^2-k.^2)))))';
-    %     end;
-    
-    % Vectorize so that we can perform the back propagation at each depth z
-    % in a single step.
-    Pv = repmat(P, [length(z), 1]); % totalChannels x zEvaluationPoints
-    kv = repmat(k, [length(z), 1]); % 
-    
-    zv = repmat(z, [length(x), 1]); % 
+    % Get layer positions if specified or divide up evenly
+    layerPositionsSpecified = ~isequal( layerPositions, 0 );
+    if layerPositionsSpecified
+        numLayers = length( layerPositions ) + 1;
+        zIndexLayers = zeros(1, numLayers);
+        % Find index corresponding to start of each layer
+        for layerCount = 1:numLayers - 1;
+            zCurrentLayerStart = layerPositions( layerCount );
+            layerStartIndex = find( 1E3.*z >= zCurrentLayerStart, 1 );
+            zIndexLayers(layerCount) = layerStartIndex;
+        end
+        zIndexLayers(end) = length(z);
+    else
+        % Otherwise just space layers evenly
+        zIndexLayers = round( (length(z)./numLayers).*( 1 : numLayers ) );
+        zIndexLayers(end) = length(z); % Don't overshoot end
+    end
 
-    % Get the wavenumber in the propagation direction
-    kz = sqrt( omega.^(2)./c.^(2) - kv.^(2) );
-           
-    % Apply shift to data  and take inverse transform to recover field at
-    % each z evaluation point.
-    asa = ifft( ...
-        ifftshift( Pv.*exp(1j.*kz.*zv'), 2), [], 2 ...
-        );
     
-    % Partition the sound speed field into a series of layers
-    endIndices = (length(z)./numLayers).*( 1 : numLayers );
+    % Initialize angular spectrum at source plane
+    previousAS = P;
+    
+    % Initialize field
+    fullField = [];
+    
     for layerCount = 1 : numLayers
         
-        minIndex = maxIndex;
+        % Get start and stop indices of the axial z vector
+        if layerCount == 1
+            ind0 = 1;
+        else
+            ind0 = zIndexLayers( layerCount - 1 ) + 1;
+        end
+        ind1 = zIndexLayers( layerCount );
+        
+        % Get z vectors in that layer
+        if layerCount == 1
+            zLayer = z( ind0 : ind1 );
+        else
+            zLayer = z( ind0 : ind1 ) - z(ind0 - 1);
+        end
+        zvLayer = repmat(zLayer, [length(x), 1]);
+        
+        % Get the sound speed in that layer
+        cLayer = mean( interpolatedC( ind0 : ind1 ) );
+        
+        % Store the center and sound speed of each layer
+        zCenterIndex = floor( (ind1 + ind0)./2 );
+        zCenterEachLayer( layerCount ) = z( zCenterIndex );
+        cEachLayer( layerCount ) = cLayer;
+        
+        % Get wavenumber vectors in that layer
+        kvLayer = repmat(k, [length(zLayer), 1]);
+        kzLayer = sqrt( omega.^(2)./cLayer.^(2) - kvLayer.^(2) );
+        
+        % Now create an array of the appropriate size for the angular
+        % spectrum at the previous plane
+        previousASv = repmat( previousAS(end, :), [length(zLayer), 1]);
+        
+        % Now propagate the angular spectrum to the next layer
+        nextAS = previousASv.*exp( 1j.*kzLayer.*zvLayer' );
+        
+        % Concatenate to the total ASA map
+        fullField = [ fullField; nextAS ];
+        
+        % Now update "previousAS" variable
+        previousAS = nextAS;
         
     end
     
-    if soundSpeedMethod == 1
-       
-        % Layer Properties ---------------------
-        layerStart = 7; % [mm], from receiver;
-        layerThickness = 4; % [mm]
-        layerC = 3000; % [m/s]
-        %----------------------------------------
-        
-        % Get indices for each region
-        zmm = z.*1E3;
-        inds1 = find( zmm < layerStart );
-        inds2 = find( ...
-            zmm >= layerStart & ...
-            zmm < (layerStart + layerThickness) ...
-            );
-        inds3 = find( zmm >= (layerStart + layerThickness) );
-        
-        % Get position vectors
-        z1 = z( inds1 );
-        zv1 = repmat(z1, [length(x), 1]); % 
-        z2 = z( inds2 ) - z( max(inds1) );
-        zv2 = repmat(z2, [length(x), 1]); % 
-        z3 = z( inds3 ) - z( max(inds2) );
-        zv3 = repmat(z3, [length(x), 1]); % 
-        
-        % Get wavenumber vectors
-        kv1 = repmat(k, [length(z1), 1]);
-        kz1 = sqrt( omega.^(2)./c.^(2) - kv1.^(2) );
-        
-        kv2 = repmat(k, [length(z2), 1]);
-        kz2 = sqrt( omega.^(2)./layerC.^(2) - kv2.^(2) ); % Use layer c
-        
-        kv3 = repmat(k, [length(z3), 1]);
-        kz3 = sqrt( omega.^(2)./c.^(2) - kv3.^(2) );
-        
-        % Now get angular spectrum of pressure at receiver array
-        AS0 = P;
-        AS0v = repmat(AS0, [length(z1), 1]);
-        
-        % Porpagate to layer
-        AS1 = AS0v.*exp( 1j.*kz1.*zv1' );
-        
-        % Get field at layer and initialize the pressure field in the layer
-        AS2v = repmat(AS1(end, :), [length(z2), 1]);
-        
-        % Propagate to other side of layer
-        AS2 = AS2v.*exp( 1j.*kz2.*zv2' );
-        
-        % Repeat on other side of layer
-        AS3v = repmat(AS2(end, :), [length(z3), 1]);
-        
-        % Propagate to end of domain
-        AS3 = AS3v.*exp( 1j.*kz3.*zv3' );
-        
-        % Now concatenate results       
-        fullField = [ AS1 ; AS2 ; AS3 ]; % Concatenate
-        asa = ifft( ...
+    % Once we've assembled the full field, take the inverse transform to
+    % get the map of the ASA
+    asa = ifft( ...
             ifftshift( fullField, 2), [], 2 ...
             );
-        
-    end
-    
-    % If we have a stratified medium, compute phase delay to add
-    if soundSpeedMethod == 3;
-        
-        % Get sound speed field and take a slice of it along z (any index 
-        % for x is fine since stratified
-        cField = data.c;
-        c_z = cField( centerChannelIndex, : );
-        
-        % Interpolate to depth computation points
-        simZ = data.xPositionVector;
-        c_z = interp1( simZ, c_z, z );
-        
-        % Get auxiliaty functions for that slice
-        c0 = 1500;
-        k0 = omega./c0;
-        mu_z = ( 1 - (c_z - c0)./c0 ).^(-2);
-        lambda_z = k0.^(2).*(1 - mu_z);
-        
-        % Perform integration to each z position
-        phi = zeros( zEvaluationPoints, totalChannels );
-        for zCount = 1:zEvaluationPoints
-            
-            zIndex = length(z) - zCount + 1;
-            
-            % Integrate from 1 to z
-            integrand = lambda_z( zCount : end ).*dz;
-            phi( zIndex, : ) = (0.5).*(1./kz(zIndex, :))* ...
-                sum( integrand )';
-            
-%             %%%%%%% DENUG %%%%%%%%
-%             figure(9988)
-%             cla;
-%             hold all;
-%             plot( z, lambda_z, 'k' );
-%             plot( z(zIndex), lambda_z(zIndex), 'ro' );
-%             ylabel( '$$\lambda(z)$$' );
-%             xlabel( '$$z$$' );
-%             drawnow;
-%             %%%%%%%%%%%%%%%%%%%%%%%
-        end
-        
-        %%%%%%% DEBUG %%%%%%%
-        figure(9989);
-        subplot( 2, 2, 1 )
-        pcolor( mod( real(phi), 2.*pi ) );
-        caxis( [0, 2.*pi] );
-        colorbar;
-        shading flat;
-        title( sprintf( '%3d kHz', floor(fc./1E3) ) );
-         
-        subplot( 2, 2, 3 )
-        pcolor( real(1./kz) );
-        caxis( [0, 1200] );
-        colorbar;
-        shading flat;
-        title( sprintf( '%3d kHz', floor(fc./1E3) ) );
-        
-        drawnow;
-        %%%%%%%%%%%%%%%%%%%%%
-        
-        % Add in phase shift to result
-        asa = ifft( ...
-            ifftshift( Pv.*exp( 1j.*kz.*zv' ).*exp( -phi ), 2), [], 2 ...
-            );
-        
-    end
     
     % Get squared magnitude of the signal
     asa = 2*( abs(asa) ).^(2);
@@ -392,26 +355,48 @@ displayString = ...
     sprintf( 'ASA Method Computation Time: %6.2f s', computationTime );
 disp( displayString );
 
-%%%%%%%% DEBUG %%%%%%%%%%%
-if soundSpeedMethod == 4;
-    figure(999)
-    subplot( 2, 1, 1 )
-    plot( z.*1E3, c_z, 'k' );
-    ylabel( '$c$ [m/s]' );
-    subplot( 2, 1, 2 )
-    plot( z.*1E3, mu_z, 'k' );
-    ylabel( '$\mu$' );
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 %% Plot angular spectrum result
+
+%%%%%%% DEBUG %%%%%%%
+figure()
+hold all;
+box on;
+% Interpolated sound speed profile
+layerSpeeds = plot( 1E3.*zCenterEachLayer, cEachLayer, '-or' );
+profileSpeeds = plot( 1E3.*z, interpolatedC, 'k' );
+xlabel( 'Distance from Receiver [mm]' );
+ylabel( 'Effective Sound Speed [m/s]' );
+legend( [layerSpeeds, profileSpeeds], 'Layer Average', 'True Profile' );
+drawnow;
+%%%%%%%%%%%%%%%%%%%%%
 
 figure()
 hold all;
 
+% Plot reconstructed map
 [ xAsaPlot, zAsaPlot ] = meshgrid( x, z );
 pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamap );
 shading flat;
+
+% Plot layer positions
+if overPlotLayers
+    for layerCount = 1:numLayers
+        
+        % Get start and stop indices of the axial z vector
+        ind0 = zIndexLayers( layerCount );
+        
+        % Construct plotting vectors
+        leftX = 1E3.*[z(ind0), z(ind0)];
+        leftY = [ -1E10, 1E10 ];
+        
+        % Plot
+        layerLines = plot( leftX, leftY, '--', ...
+            'Color', 0.6.*[1, 1, 1], ...
+            'LineWidth', 1.2 );
+        
+        
+    end
+end
 
 % Plot source positions
 % Axial position relative to receiver
@@ -431,7 +416,8 @@ xlim( [0, 80] );
 xlabel( 'Distance from Receiver [mm]' );
 ylabel( 'Sensor Position [mm]' );
 
-caxis([0, 4E4]);
+% caxis([0, 3E5]);
+max(max(asamap))
 
 cBarHandle = colorbar;
 
