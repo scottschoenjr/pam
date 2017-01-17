@@ -27,7 +27,7 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/skullData_1bub_3MHz_rec75mm';
+    '../data/results/oneBubble/stratifiedMedium_sqrt_4000mps_1bub_rec100mm';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -303,7 +303,6 @@ for fCount = 1:ss(1)
     % in a single step.
     Pv = repmat(P, [length(z), 1]); % totalChannels x zEvaluationPoints
     kv = repmat(k, [length(z), 1]); % 
-    
     zv = repmat(z, [length(x), 1]); % 
 
     % Get the wavenumber in the propagation direction
@@ -508,3 +507,16 @@ cBarHandle.Label.FontSize = 16;
 cBarHandle.Label.Interpreter = 'latex';
 cBarHandle.TickLabelInterpreter = 'latex';
 
+% Get axial profile
+figure()
+hold all
+middleIndex = find( x > 0, 1 );
+maxValue = max( max( asamap( :,  middleIndex-5:middleIndex + 5 ) ) );
+for cpCount = middleIndex-5:middleIndex + 5
+    centerProfile = asamap( :, cpCount )./maxValue;
+    plot( z, centerProfile + (cpCount - middleIndex).*1.5, 'k' );
+end
+set(gca, 'XDir', 'Reverse' )
+% centerProfileNorm = centerProfile./max(max(centerProfile));
+% plot( z, centerProfileNorm, 'k' );
+% ylim( [0, 1.01] );

@@ -427,9 +427,8 @@ for fCount = 1:ss(1)
         kzLayer = sqrt( omega.^(2)./cLayer.^(2) - kvLayer.^(2) );
         
         %%%%%%% DEBUG %%%%%%%
-        if isreal( kzLayer )
-            theta = acos( kzLayer./kvLayer );
-            pcolor( 180.*theta./pi ); shading flat;
+        if any( ~isreal( kzLayer ) )
+            theta = acos( 
             xxxx = 6;
         end
         %%%%%%%%%%%%%%%%%%%%%
