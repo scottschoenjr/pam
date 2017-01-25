@@ -29,7 +29,7 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/stratifiedMedium_sqrt_4000mps_1bub_rec100mm';
+    '../data/results/oneBubble/layeredMedium_3000mps_04mm_1bub_10mmoffset';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -38,7 +38,7 @@ disp(['               ...done (', num2str(toc), ' s).' ] )
 % Plot layers on top of reconstruction
 overPlotLayers = 0; 
 % Plot sound speed profile used
-plotSoundSpeedProfile = 0;
+plotSoundSpeedProfile = 1;
 % Plot sound speed region
 plotSoundSpeedRegion = 1;
 
@@ -50,21 +50,23 @@ plotSoundSpeedRegion = 1;
 % layerPositions = [0, 22.5:0.5:24, 24.5:32, 32:0.5:40, 40.5:2:79 ]; % Skull 100 [mm]
 % layerPositions = [25:32, 32.5:0.5:38, 39:2:81, 81.5:0.5:85.5, 86:2:103 ] - 25; % Skull 75 [mm]
 % layerPositions = [0:10:30, 35:5:50, 52.5:2.5:55, 56:1:57, 58:0.4:60.5, 75]; % Stratified [mm]
-% layerPositions = [0, 32.1, 35.9 ]; % Layer [mm]
+layerPositions = [0, 32.1, 35.9 ]; % Layer [mm]
 % layerPositions = [0, 27.1, 29.9, 34.1, 35.9 ]; % 2 Layers [mm]
-layerPositions = 0;
 numLayers = length(layerPositions);
-numLayers = 12;
+
+% To use evenly spaced layers, set layerPositions = 0 and specify numLayers
+% layerPositions = 0;
+% numLayers = 2;
 
 % Determine which portion of the transverse sound speed to average
 useEntireTransverseRange = 1;
 % If we want to use just portions around the target region, specify the
 % point of interest and buffer (how much of transverse slice to include in
 % averaging).
-targetDepth = 35; % Distance from receiver array [mm]
-targetTransversePosition = 0; % [mm]
+targetDepth = 60; % Distance from receiver array [mm]
+targetTransversePosition = 20; % [mm]
 transverseBuffer = 10; % [mm]
-transverseSpan = 0.5; % What fraction of the array to widen to.
+transverseSpan = 0.9; % What fraction of the array to widen to.
 
 bin = 'y';
 deld = 2;
@@ -266,7 +268,7 @@ else
     % Get slopes
     topSlope = ( xMax - x0Top )./(targetDepth./1E3);
     botSlope = ( xMin - x0Bot )./(targetDepth./1E3);
-    % Get z vectors for before and after
+    % Get z vectors for before and after target z
     zSpeedRegions = fliplr( ...
         data.recPosition - dataZ( zStartIndex : zEndIndex ) );
     breakIndex = find( zSpeedRegions > targetDepth./1E3, 1 );
@@ -296,6 +298,7 @@ else
 
         xlabel( 'Distance from Receiver [mm]' );
         xlim( 1E3.*[0, data.recPosition] );
+        ylabel( 'Transverse Distance [mm]' );
         ylim( 1E3.*[ min(xSSP(:, 1)), max(xSSP(:, 1)) ] );
         axis equal;
         drawnow;
@@ -425,15 +428,7 @@ for fCount = 1:ss(1)
         % Get wavenumber vectors in that layer
         kvLayer = repmat(k, [length(zLayer), 1]);
         kzLayer = sqrt( omega.^(2)./cLayer.^(2) - kvLayer.^(2) );
-        
-        %%%%%%% DEBUG %%%%%%%
-        if isreal( kzLayer )
-            theta = acos( kzLayer./kvLayer );
-            pcolor( 180.*theta./pi ); shading flat;
-            xxxx = 6;
-        end
-        %%%%%%%%%%%%%%%%%%%%%
-        
+               
         % Now create an array of the appropriate size for the angular
         % spectrum at the previous plane
         previousASv = repmat( previousAS(end, :), [length(zLayer), 1]);
@@ -542,20 +537,23 @@ cBarHandle.TickLabelInterpreter = 'latex';
 
 % Get axial profile
 figure()
-middleIndex = round(length(x)./2);
+middleIndex = round(length(x)./2) + 1;
 centerProfile = asamap( :, middleIndex );
 centerProfileNorm = centerProfile./max(centerProfile);
-plot( z, centerProfileNorm, 'k' );
+plot( 1E3.*z, centerProfileNorm, 'k' );
 ylim( [0, 1.01] );
+xlabel( 'Distance From Receiver [mm]' );
+set( gca, 'XDir', 'Reverse' );
+ylabel( 'Normalized Intensity' );
 
-% Get axial profile
-figure()
-hold all
-middleIndex = find( x > 0, 1 );
-maxValue = max( max( asamap( :,  middleIndex-5:middleIndex + 5 ) ) );
-for cpCount = middleIndex-5:middleIndex + 5
-    centerProfile = asamap( :, cpCount )./maxValue;
-    plot( z, centerProfile + (cpCount - middleIndex).*1.5, 'k' );
-end
-set(gca, 'XDir', 'Reverse' )
+% % Get axial profile
+% figure()
+% hold all
+% middleIndex = find( x > 0, 1 );
+% maxValue = max( max( asamap( :,  middleIndex-5:middleIndex + 5 ) ) );
+% for cpCount = middleIndex-5:middleIndex + 5
+%     centerProfile = asamap( :, cpCount )./maxValue;
+%     plot( z, centerProfile + (cpCount - middleIndex).*1.5, 'k' );
+% end
+% set(gca, 'XDir', 'Reverse' )
 
