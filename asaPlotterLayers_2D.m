@@ -29,21 +29,24 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/layeredMedium_3000mps_04mm_1bub_10mmoffset';
+    '../data/results/oneBubble/layeredMedium_3000mps_04mm_1bub.mat';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
-% Plotting options
+%% Settings
 
+% -------------------------- Plot Settings --------------------------------
 % Plot layers on top of reconstruction
 overPlotLayers = 0; 
+
 % Plot sound speed profile used
 plotSoundSpeedProfile = 1;
+
 % Plot sound speed region
 plotSoundSpeedRegion = 1;
+% -------------------------------------------------------------------------
 
-%% Set parameters
-
+% --------------------- Layer Position Settings ---------------------------
 % Set number of layers to divide up field into
 % Start positions of layers. Set this to 0 to divide evenly into the
 % desired number of layers
@@ -57,16 +60,27 @@ numLayers = length(layerPositions);
 % To use evenly spaced layers, set layerPositions = 0 and specify numLayers
 % layerPositions = 0;
 % numLayers = 2;
+%--------------------------------------------------------------------------
 
-% Determine which portion of the transverse sound speed to average
+% ------------------- Selective Averaging Settings ------------------------
+% Determine which portion of the transverse sound speed to average 
 useEntireTransverseRange = 1;
 % If we want to use just portions around the target region, specify the
 % point of interest and buffer (how much of transverse slice to include in
 % averaging).
 targetDepth = 60; % Distance from receiver array [mm]
-targetTransversePosition = 20; % [mm]
+targetTransversePosition = 0; % [mm]
 transverseBuffer = 10; % [mm]
 transverseSpan = 0.9; % What fraction of the array to widen to.
+% -------------------------------------------------------------------------
+
+% -------------------- Time Limit Settings --------------------------------
+% Set start and stop times. If either is set to NaN, the entire range 
+% is used.
+t0 = 35E-6; % [s]
+t1 = 85E-6; % [s]
+t1 = NaN;
+% -------------------------------------------------------------------------
 
 bin = 'y';
 deld = 2;
@@ -80,15 +94,26 @@ rho0 = 1000; % [kg/m^3]
 % Set location of the probe [mm]
 loc = dx*(data.yDim - 5) - data.excit_loc(numTargets,2,1)*dx;
 
+% Get the receiver data
+arrayData = data.aedata;
+
 % Compute the time step
-t = data.t; % Time vector [s]
+if ~any( isnan( [t0, t1] ) )
+    t = data.t; % Time vector [s]
+    
+    % Get start and stop indices
+    tIndex0 = find( t > t0, 1 );
+    tIndex1 = find( t > t1, 1 );
+    
+    % Only take portion of received data between start and stop times
+    t = t( tIndex0: tIndex1 );
+    arrayData = arrayData( :, tIndex0 : tIndex1 );
+    
+end
 dt = data.t(2) - data.t(1); % Time step [s]
 
 % Get the x-positions of the sensors
 y = data.yPositionVector; % [m]
-
-% Get the received data
-arrayData = data.aedata;
 
 % Get the size of the received US data array. This array has dimension:
 %  (index of sensor) by (time index)

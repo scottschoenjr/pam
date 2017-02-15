@@ -29,7 +29,7 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/skullData_1bub_3MHz_rec75mm';
+    '../data/results/oneBubble/stratifiedMedium_sqrt_4000mps_1bub_rec100mm';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -191,6 +191,7 @@ tic
 
 % Initialize array to hold final image
 asamap = zeros( length(z), totalChannels);
+asamapRef = zeros( length(z), totalChannels);
 
 % Compute average sound speed at each point on the reconstruction z vector
 dataC = data.c; % As a function of z *from left* (not receiver!)
@@ -267,50 +268,46 @@ for fCount = 1:ss(1)
         
         % Integrate from 1 to z
         integrand = lambda_z( 1 : zCount ).*dz;
-        phi( zCount, : ) = (0.5).*(1./kz(zCount, :))* ...
+        phi( zCount, : ) = -(0.5).*( 1j./(kz(zCount, :)) )* ...
             sum( integrand )';
-        
-        %             %%%%%%% DENUG %%%%%%%%
-        %             figure(9988)
-        %             cla;
-        %             hold all;
-        %             plot( z, lambda_z, 'k' );
-        %             plot( z(zIndex), lambda_z(zIndex), 'ro' );
-        %             ylabel( '$$\lambda(z)$$' );
-        %             xlabel( '$$z$$' );
-        %             drawnow;
-        %             %%%%%%%%%%%%%%%%%%%%%%%
     end
     
     %%%%%%% DEBUG %%%%%%%
-    figure(9989);
-    subplot( 2, 2, 1 )
-    pcolor( mod( real(phi), 2.*pi ) );
-    caxis( [0, 2.*pi] );
-    colorbar;
-    shading flat;
-    title( sprintf( '%3d kHz', floor(fc./1E3) ) );
-    
-    subplot( 2, 2, 3 )
-    pcolor( real(1./kz) );
-    caxis( [0, 1200] );
-    colorbar;
-    shading flat;
-    title( sprintf( '%3d kHz', floor(fc./1E3) ) );
-    
-    drawnow;
+    if mod( fCount, 8 ) == 0
+        figure(9989);
+        subplot( 2, 2, 1 )
+        pcolor( real(phi./1j) );
+        caxis( [0, 2.*pi] );
+        colorbar;
+        shading flat;
+        title( sprintf( '%3d kHz', floor(fc./1E3) ) );
+        
+        subplot( 2, 2, 3 )
+        pcolor( real(1./kz) );
+        caxis( [0, 1200] );
+        colorbar;
+        shading flat;
+        title( sprintf( '%3d kHz', floor(fc./1E3) ) );
+        
+        drawnow;
+    end
     %%%%%%%%%%%%%%%%%%%%%
     
     % Add in phase shift to result
     asa = ifft( ...
-        ifftshift( Pv.*exp( 1j.*kz.*zv' - phi ), 2), [], 2 ...
+        ifftshift( Pv.*exp( 1j.*(kz.*zv') ).*exp( phi ), 2), [], 2 ...
         );
+    asaRef = ifft( ...
+        ifftshift( Pv.*exp( 1j.*(kz.*zv') ), 2), [], 2 ...
+        ); % No phase shift
     
     % Get squared magnitude of the signal
     asa = 2*( abs(asa) ).^(2);
+    asaRef = 2*( abs(asaRef) ).^(2);
     
     % Add contribution of this frequency
     asamap = asamap + asa;
+    asamapRef = asamapRef + asaRef;
     
 end
 
@@ -331,6 +328,7 @@ box on;
 profileSpeeds = plot( 1E3.*z, interpolatedC, 'k' );
 xlabel( 'Distance from Receiver [mm]' );
 ylabel( 'Effective Sound Speed [m/s]' );
+set(gca, 'XDir', 'reverse' );
 drawnow;
 %%%%%%%%%%%%%%%%%%%%%
 
@@ -342,25 +340,42 @@ hold all;
 pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamap );
 shading flat;
 
-% Plot layer positions
-if overPlotLayers
-    for layerCount = 1:numLayers
-        
-        % Get start and stop indices of the axial z vector
-        ind0 = zIndexLayers( layerCount );
-        
-        % Construct plotting vectors
-        leftX = 1E3.*[z(ind0), z(ind0)];
-        leftY = [ -1E10, 1E10 ];
-        
-        % Plot
-        layerLines = plot( leftX, leftY, '--', ...
-            'Color', 0.6.*[1, 1, 1], ...
-            'LineWidth', 1.2 );
-        
-        
-    end
-end
+% Plot source positions
+% Axial position relative to receiver
+zSources = data.recPosition - data.sourcePositions( :, 1 );
+% Lateral position relative to receiver center
+xSpan = max(data.yPositionVector) - min(data.yPositionVector);
+offset = xSpan./2 - dx;
+xSources = data.sourcePositions( :, 2 )  - offset;
+plot( zSources.*1E3, xSources.*1E3, 'ro' );
+
+% Reverse x-direction to mirror arrangement
+set( gca, 'XDir', 'reverse' );
+
+ylim( [-40, 40] );
+xlim( [0, 80] );
+
+xlabel( 'Distance from Receiver [mm]' );
+ylabel( 'Sensor Position [mm]' );
+
+% caxis([0, 3E5]);
+max(max(asamap))
+
+cBarHandle = colorbar;
+
+cBarHandle.Label.String = '';
+cBarHandle.Label.FontSize = 16;
+cBarHandle.Label.Interpreter = 'latex';
+cBarHandle.TickLabelInterpreter = 'latex';
+
+%%%%%%% Plot unadjusted signal %%%%%%%%%%
+figure()
+hold all;
+
+% Plot reconstructed map
+[ xAsaPlot, zAsaPlot ] = meshgrid( x, z );
+pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamapRef );
+shading flat;
 
 % Plot source positions
 % Axial position relative to receiver

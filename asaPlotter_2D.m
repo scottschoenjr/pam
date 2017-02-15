@@ -27,7 +27,7 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/layeredMedium_3000mps_04mm_1bub_30mmoffset';
+    '../data/results/oneBubble/layeredMedium_3000mps_04mm_1bub';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
