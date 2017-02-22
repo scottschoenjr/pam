@@ -55,17 +55,32 @@ plot( sourcePositions(:, 1).*1E3, sourcePositions(:, 2).*1E3, 'ro' );
 plot( 1E3.*[recPosition, recPosition], ...
     1E3.*[min(yPositionVector), max(yPositionVector)], '--w' );
 
-% Fromatting
-xlabel( 'Distance from Receiver [mm]' );
-ylabel( 'Sensor Position [mm]' );
+% Formatting
+% xlabel( 'Distance from Receiver [mm]' );
+% ylabel( 'Sensor Position [mm]' );
+% 
+% xlim( 1E3.*[min(xPositionVector), max(xPositionVector)] );
+% ylim( 1E3.*[min(yPositionVector), max(yPositionVector)] );
+% 
+% cBarHandle = colorbar;
+% 
+% cBarHandle.Label.String = 'Sound Speed [m/s]';
+% cBarHandle.Label.FontSize = 16;
+% cBarHandle.Label.Interpreter = 'latex';
+% cBarHandle.TickLabelInterpreter = 'latex';
+
+xlabel( 'Axial Distance [mm]', 'FontSize', 22 );
+ylabel( 'Transverse Distance [mm]', 'FontSize', 22 );
 
 xlim( 1E3.*[min(xPositionVector), max(xPositionVector)] );
 ylim( 1E3.*[min(yPositionVector), max(yPositionVector)] );
+xlim([0, 120]);
+axis equal;
 
 cBarHandle = colorbar;
 
 cBarHandle.Label.String = 'Sound Speed [m/s]';
-cBarHandle.Label.FontSize = 16;
+cBarHandle.Label.FontSize = 20;
 cBarHandle.Label.Interpreter = 'latex';
 cBarHandle.TickLabelInterpreter = 'latex';
 

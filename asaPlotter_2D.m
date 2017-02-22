@@ -27,7 +27,7 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/layeredMedium_3000mps_04mm_1bub';
+    '../data/results/oneBubble/skullData_1bub';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -38,7 +38,7 @@ disp(['               ...done (', num2str(toc), ' s).' ] )
 % 1 - Account for layer (see that code to adjust parameters
 % 2 - Use Averaged (in z) sound speed
 % 3 - Use stratified medium result (once it works...)
-soundSpeedMethod = 2;
+soundSpeedMethod = 0;
 
 bin = 'y';
 deld = 2;
@@ -498,12 +498,18 @@ xlim( [0, 80] );
 xlabel( 'Distance from Receiver [mm]' );
 ylabel( 'Sensor Position [mm]' );
 
-% caxis([0, 3E5]);
+% Poster Settings
+pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamap./max(max( abs( asamap ) )) );
+xlabel( 'Axial Distance [mm]', 'FontSize', 22 );
+ylabel( 'Transverse Distance [mm]', 'FontSize', 22 );
+caxis([0, 1]);
+shading flat;
+plot( zSources.*1E3, xSources.*1E3, 'ro' );
 
 cBarHandle = colorbar;
 
-cBarHandle.Label.String = '';
-cBarHandle.Label.FontSize = 16;
+cBarHandle.Label.String = 'Normalized Intensity';
+cBarHandle.Label.FontSize = 22;
 cBarHandle.Label.Interpreter = 'latex';
 cBarHandle.TickLabelInterpreter = 'latex';
 

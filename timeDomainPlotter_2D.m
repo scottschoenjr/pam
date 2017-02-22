@@ -27,7 +27,7 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/layeredMedium_3000mps_04mm_3bub_rec75mm';
+    '../data/results/oneBubble/uniformMedium_1500mps_1bub';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -321,10 +321,16 @@ xlim( [0, 80] );
 xlabel( 'Distance from Receiver [mm]' );
 ylabel( 'Transverse Distance [mm]' );
 
+% Poster plot
+pcolor( z, x - 1E3.*xSpan./2, tdReconstruction./max(max(abs(tdReconstruction) ) ) );
+xlabel( 'Axial Distance [mm]', 'FontSize', 22 );
+ylabel( 'Transverse Distance [mm]', 'FontSize', 22 );
+caxis([0, 1]);
+
 cBarHandle = colorbar;
 
-cBarHandle.Label.String = '';
-cBarHandle.Label.FontSize = 16;
+cBarHandle.Label.String = 'Normalized Intensity';
+cBarHandle.Label.FontSize = 20;
 cBarHandle.Label.Interpreter = 'latex';
 cBarHandle.TickLabelInterpreter = 'latex';
 
