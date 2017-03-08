@@ -1,6 +1,6 @@
 %**************************************************************************
 %
-% Angular Spectrum Field Reconstruction (2D) - Stratified Medium
+% Angular Spectrum Field Reconstruction (2D)
 %
 %   This script uses a passive acoustic mapping (PAM) based on back-
 %   propagation to reconstruct cavitation from selective the data collected
@@ -12,8 +12,6 @@
 %   201607XX   Calum Crake       Added frequency domain method
 %   201612XX   Scott Schoen Jr   Cleanup and documentatioin; repurposing to
 %                                ASA-specific processes.
-%   201701XX   Scott Schoen Jr   New version to use stratified medium
-%                                expression.
 %
 % 
 %**************************************************************************
@@ -30,8 +28,6 @@ disp('Loading file...');
 tic;
 sourceFile = ...
     '../data/results/oneBubble/stratifiedMedium_sqrt_4000mps_1bub_rec100mm';
-% sourceFile = ...
-%     '../data/results/oneBubble/stratifiedMedium_200mps_025mm_1bub';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -130,8 +126,17 @@ else
     
 end
 
-%% Get frequency parameters
+%% Add noise to the rf data and display them
+rf = rf1;
+% for mm = 1:channels
+%     SNR = 120; % [dB] 120 - Almost no noise, 58/62 - High noise
+%     rf(mm, :) = addGaussianWhiteNoise(rf1(mm,:),SNR);
+% end
+
+% Power spectrum at center channel
 centerChannelIndex = round( numSensors./2 );
+spectrumAmplitude = abs( fft( arrayData(centerChannelIndex, :) ) );
+powerSpectrumNorm = ( spectrumAmplitude./max( spectrumAmplitude ) ).^(2);
 
 Fs = 1./dt;
 df = Fs./numTimeSteps;
@@ -149,6 +154,7 @@ zEvaluationPoints = 256;
 
 % Initialize angular spectrum map
 asamap = zeros(zEvaluationPoints, totalChannels);
+asamapRef = zeros(zEvaluationPoints, totalChannels);
 
 % Pad the array data with 0s.
 paddedArrayData = padarray( double(rf), totalChannels/2 - channels/2 );
@@ -188,40 +194,25 @@ paddedArrayData = paddedArrayData';
 % Take the FFT of the padded data on each channel
 paddedArrayDataTilde = fft(paddedArrayData);
 
-% Time reconstruction
-tic
-
-% Initialize array to hold final image
-asamap = zeros( length(z), totalChannels);
-asamapRef = zeros( length(z), totalChannels);
-
-% Compute average sound speed at each point on the reconstruction z vector
+% Get the sound speed vector
 dataC = data.c; % As a function of z *from left* (not receiver!)
 dataZ = data.xPositionVector; % [m]
 
 % Slice out the portion between the array and the greatest depth
 zStartIndex = find( ... % Will fail if z depth too big
-    dataZ > (data.recPosition - z(end)), 1 );
+    dataZ > (data.recPosition - (z(end) + dx)), 1 ); % Add to make sure zClipped has bigger range than z
 zEndIndex = find( ...
     dataZ > (data.recPosition - z(1)), 1 );
+% Use profile along any row (since it's stratified). I chose 4 since it's
+% more likely to catch eyes than 1.
+cClipped = dataC( 4, zStartIndex : zEndIndex );
+zClipped = data.recPosition - dataZ( zStartIndex : zEndIndex );
 
-% Get the average sound speed in each plane (at each z)
-axialInd0 = 1;
-axialInd1 = length(x);
-% axialInd0 = round( length(x)./2 - length(x)./6 );
-% axialInd1 = round( length(x)./2 + length(x)./6 );
-cFieldMeanPlane = mean( ...
-    dataC( axialInd0 : axialInd1, zStartIndex : zEndIndex ), 1 );
+% Interpolate sound speed to evaluated z depths
+c_z = interp1( zClipped, cClipped, z );
 
-% Flip data, since reconstruction measures back from receiver
-clippedC = fliplr( cFieldMeanPlane );
-
-% Now just interpolate c at the values in z (instead of clippedZ )
-numPointsRaw = zEndIndex - zStartIndex + 1; % Points in data
-rawPoints = linspace(0, 1, numPointsRaw);
-numPointsInterp = length(z); % Number of points to interpolate to
-interpPoints = linspace(0, 1, numPointsInterp );
-interpolatedC = interp1( rawPoints, clippedC, interpPoints );
+% Time reconstruction
+tic
 
 % Now for each frequency bin
 for fCount = 1:ss(1)
@@ -229,7 +220,7 @@ for fCount = 1:ss(1)
     % Get the center frequency
     fc = fVector(fbins(fCount)); % [Hz]
     omega = 2*pi*fc; % [rad/s]
-    
+          
     % ff the data at fc
     [zz, ff] = min( abs(fk-fc) );
     
@@ -253,64 +244,58 @@ for fCount = 1:ss(1)
     Pv = repmat(P, [length(z), 1]); % totalChannels x zEvaluationPoints
     kv = repmat(k, [length(z), 1]); % 
     zv = repmat(z, [length(x), 1]); % 
-    
+
     % Get the wavenumber in the propagation direction
     kz = sqrt( omega.^(2)./c.^(2) - kv.^(2) );
     
-    % Get auxiliaty functions
-    c_z = interpolatedC;
-    c0 = 1500;
-    k0 = omega./c0;
-    mu_z = ( 1 + (c_z - c0)./c0 ).^(-2);
-    lambda_z = k0.^(2).*(1 - mu_z);
+    % Compute the phase delay
+    c0 = c; % Maybe mean( c_z )?
+    cPrime = fliplr( c_z - c0 ); % Measure back from receiver
+    mu_z = ( 1 + cPrime./c0 ).^(-2);
+    lambda_z = (omega.^(2)./c.^(2)).*( 1 - mu_z );
     
-    % Perform integration to each z position
-    phi = zeros( zEvaluationPoints, totalChannels );
-    for zCount = 1:zEvaluationPoints
+    % Now compute the phase delay for each receiver for each depth
+    trueFalseMatrix = ( imag(kz) == 0 );
+    kzLoop = trueFalseMatrix.*kz;
+    phi = zeros( length(z), length(x) );
+    for zCount = 1:length(z)
         
-        % Integrate from source plane back to z
-        integrand = lambda_z( 1 : zCount ).*dz;
-        phi( zCount, : ) = ( 1./(2.*kz(zCount, :)) )* ...
-            sum( integrand )';
-        
+        integrand = lambda_z(1:zCount).*dz;
+        phi(zCount, :) = (1./(2.*kzLoop(zCount, :))).*sum( integrand );
+       
     end
-    
-    %%%%%%% DEBUG %%%%%%%
-    if mod( fCount, 8 ) == 0
-        figure(9989);
-        subplot( 2, 2, 1 )
-        pcolor( mod( real(phi), 2.*pi ) );
-        caxis( [0, 2.*pi] );
-        colorbar;
-        shading flat;
-        title( sprintf( '%3d kHz', floor(fc./1E3) ) );
-        
-        subplot( 2, 2, 3 )
-        pcolor( real(1./kz) );
-        caxis( [0, 3000] );
-        colorbar;
-        shading flat;
-        title( sprintf( '%3d kHz', floor(fc./1E3) ) );
-        
-        drawnow;
-    end
-    %%%%%%%%%%%%%%%%%%%%%
-    
-    % Add in phase shift to result
-    asa = ifft( ...
-        ifftshift( Pv.*exp( 1j.*(kz.*zv' + phi) ), 2), [], 2 ...
-        );
+           
+    % Apply shift to data  and take inverse transform to recover field at
+    % each z evaluation point.
     asaRef = ifft( ...
-        ifftshift( Pv.*exp( 1j.*(kz.*zv') ), 2), [], 2 ...
-        ); % No phase shift
+        ifftshift( Pv.*exp(1j.*kz.*zv'), 2), [], 2 ...
+        );
+    
+    % Compute phase correction
+    phaseCorrection = exp( 1j.*phi );
+    phaseCorrection( isnan( phaseCorrection ) ) = 1;
+    asa = ifft( ...
+        ifftshift( Pv.*exp( 1j.*(kz.*zv' - real(phi) ) ), 2), [], 2 ...
+        );
     
     % Get squared magnitude of the signal
-    asa = 2*( abs(asa) ).^(2);
     asaRef = 2*( abs(asaRef) ).^(2);
+    asa = 2*( abs(asa) ).^(2);
     
     % Add contribution of this frequency
-    asamap = asamap + asa;
     asamapRef = asamapRef + asaRef;
+    asamap = asamap + asa;
+    
+    %%%%%%% DEBUG %%%%%%%
+    figure(103)
+    subplot( 1, 2, 1)
+    pcolor( real(phi') );
+    shading flat;
+    subplot( 1, 2, 2)
+    pcolor( asamap' );
+    shading flat;
+    pause(0.1);
+    %%%%%%%%%%%%%%%%%%%%%
     
 end
 
@@ -323,22 +308,9 @@ disp( displayString );
 
 %% Plot angular spectrum result
 
-%%%%%%% DEBUG %%%%%%%
-figure()
-hold all;
-box on;
-% Interpolated sound speed profile
-profileSpeeds = plot( 1E3.*z, interpolatedC, 'k' );
-xlabel( 'Distance from Receiver [mm]' );
-ylabel( 'Effective Sound Speed [m/s]' );
-set(gca, 'XDir', 'reverse' );
-drawnow;
-%%%%%%%%%%%%%%%%%%%%%
-
 figure()
 hold all;
 
-% Plot reconstructed map
 [ xAsaPlot, zAsaPlot ] = meshgrid( x, z );
 pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamap );
 shading flat;
@@ -360,22 +332,12 @@ xlim( [0, 80] );
 
 xlabel( 'Distance from Receiver [mm]' );
 ylabel( 'Sensor Position [mm]' );
+title( 'With Phase Adjustment' );
 
-% caxis([0, 3E5]);
-max(max(asamap))
-
-cBarHandle = colorbar;
-
-cBarHandle.Label.String = '';
-cBarHandle.Label.FontSize = 16;
-cBarHandle.Label.Interpreter = 'latex';
-cBarHandle.TickLabelInterpreter = 'latex';
-
-%%%%%%% Plot unadjusted signal %%%%%%%%%%
+% Reference Plot
 figure()
 hold all;
 
-% Plot reconstructed map
 [ xAsaPlot, zAsaPlot ] = meshgrid( x, z );
 pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamapRef );
 shading flat;
@@ -397,14 +359,4 @@ xlim( [0, 80] );
 
 xlabel( 'Distance from Receiver [mm]' );
 ylabel( 'Sensor Position [mm]' );
-
-% caxis([0, 3E5]);
-max(max(asamap))
-
-cBarHandle = colorbar;
-
-cBarHandle.Label.String = '';
-cBarHandle.Label.FontSize = 16;
-cBarHandle.Label.Interpreter = 'latex';
-cBarHandle.TickLabelInterpreter = 'latex';
-
+title( 'No Phase Adjustment' );

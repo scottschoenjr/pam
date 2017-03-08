@@ -29,7 +29,7 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/layeredMedium_3000mps_04mm_1bub.mat';
+    '../data/results/oneBubble/skullData_1bub.mat';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -50,10 +50,10 @@ plotSoundSpeedRegion = 1;
 % Set number of layers to divide up field into
 % Start positions of layers. Set this to 0 to divide evenly into the
 % desired number of layers
-% layerPositions = [0, 22.5:0.5:24, 24.5:32, 32:0.5:40, 40.5:2:79 ]; % Skull 100 [mm]
+layerPositions = [0, 22.5:0.5:24, 24.5:32, 32:0.5:40, 40.5:2:79 ]; % Skull 100 [mm]
 % layerPositions = [25:32, 32.5:0.5:38, 39:2:81, 81.5:0.5:85.5, 86:2:103 ] - 25; % Skull 75 [mm]
 % layerPositions = [0:10:30, 35:5:50, 52.5:2.5:55, 56:1:57, 58:0.4:60.5, 75]; % Stratified [mm]
-layerPositions = [0, 32.1, 35.9 ]; % Layer [mm]
+% layerPositions = [0, 32.1, 35.9 ]; % Layer [mm]
 % layerPositions = [0, 27.1, 29.9, 34.1, 35.9 ]; % 2 Layers [mm]
 numLayers = length(layerPositions);
 
@@ -64,7 +64,7 @@ numLayers = length(layerPositions);
 
 % ------------------- Selective Averaging Settings ------------------------
 % Determine which portion of the transverse sound speed to average 
-useEntireTransverseRange = 1;
+useEntireTransverseRange = 0;
 % If we want to use just portions around the target region, specify the
 % point of interest and buffer (how much of transverse slice to include in
 % averaging).
@@ -355,7 +355,6 @@ else
     end
     
 end
-
 
 % Flip data, since reconstruction measures back from receiver
 clippedC = fliplr( cFieldMeanPlane );

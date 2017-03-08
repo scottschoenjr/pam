@@ -38,7 +38,7 @@ disp(['               ...done (', num2str(toc), ' s).' ] )
 % 1 - Account for layer (see that code to adjust parameters
 % 2 - Use Averaged (in z) sound speed
 % 3 - Use stratified medium result (once it works...)
-soundSpeedMethod = 0;
+soundSpeedMethod = 2;
 
 bin = 'y';
 deld = 2;
