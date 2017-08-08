@@ -28,8 +28,12 @@ clc;
 %% Load in data file data file
 disp('Loading file...');
 tic;
+% sourceFile = ...
+%     '../data/results/oneBubble/circularLayer/circularLayer_3000mps_1bub_4040.mat';
+% sourceFile = ...
+%     '../data/results/oneBubble/skull/skullData_1bub_10mmoffset.mat';
 sourceFile = ...
-    '../data/results/oneBubble/skullData_1bub.mat';
+    '../data/results/oneBubble/stratified/stratified_gaussian_2500pk_005RangeSigma_1bub_4040.mat';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -50,35 +54,37 @@ plotSoundSpeedRegion = 1;
 % Set number of layers to divide up field into
 % Start positions of layers. Set this to 0 to divide evenly into the
 % desired number of layers
-layerPositions = [0, 22.5:0.5:24, 24.5:32, 32:0.5:40, 40.5:2:79 ]; % Skull 100 [mm]
+% layerPositions = [0, 22.5:0.5:24, 24.5:32, 32:0.5:40, 40.5:2:79 ]; % Skull 100 [mm]
 % layerPositions = [25:32, 32.5:0.5:38, 39:2:81, 81.5:0.5:85.5, 86:2:103 ] - 25; % Skull 75 [mm]
+% layerPositions = [10, 17:0.5:22, 35, 58:0.5:64, 70]; % Circular Layer [mm]
+% layerPositions = [15, 30, 34:60, 62:2:80 ]; % Circular Layer [mm]
 % layerPositions = [0:10:30, 35:5:50, 52.5:2.5:55, 56:1:57, 58:0.4:60.5, 75]; % Stratified [mm]
-% layerPositions = [0, 32.1, 35.9 ]; % Layer [mm]
+layerPositions = [0, 32.1, 35.9 ]; % Layer [mm]
 % layerPositions = [0, 27.1, 29.9, 34.1, 35.9 ]; % 2 Layers [mm]
 numLayers = length(layerPositions);
 
 % To use evenly spaced layers, set layerPositions = 0 and specify numLayers
-% layerPositions = 0;
-% numLayers = 2;
+layerPositions = 0;
+numLayers = 20;
 %--------------------------------------------------------------------------
 
 % ------------------- Selective Averaging Settings ------------------------
 % Determine which portion of the transverse sound speed to average 
-useEntireTransverseRange = 0;
+useEntireTransverseRange = 1;
 % If we want to use just portions around the target region, specify the
 % point of interest and buffer (how much of transverse slice to include in
 % averaging).
 targetDepth = 60; % Distance from receiver array [mm]
-targetTransversePosition = 0; % [mm]
-transverseBuffer = 10; % [mm]
-transverseSpan = 0.9; % What fraction of the array to widen to.
+targetTransversePosition = 20; % [mm]
+transverseBuffer = 5; % [mm]
+transverseSpan = 0.8; % What fraction of the array to widen to.
 % -------------------------------------------------------------------------
 
 % -------------------- Time Limit Settings --------------------------------
 % Set start and stop times. If either is set to NaN, the entire range 
 % is used.
 t0 = 35E-6; % [s]
-t1 = 85E-6; % [s]
+t1 = 75E-6; % [s]
 t1 = NaN;
 % -------------------------------------------------------------------------
 
@@ -86,6 +92,11 @@ bin = 'y';
 deld = 2;
 numTargets = data.numSources; % Number of targets
 dx = data.dx*1E3; % Element spacing [mm]
+
+% ------------------------ Other Settings ---------------------------------
+fdtdOffset = 13.*dx./1E3;
+padFactor = 1; % 1 - No Pad channels, 2 - Pad by N/2, etc.
+% -------------------------------------------------------------------------
 
 % Medium proerties
 c = 1500; % [m/s]
@@ -122,7 +133,7 @@ numSensors = ss(1);
 numTimeSteps = ss(2);
 
 % Set the number of receiving channels. The number of 
-channels = 64*2;
+channels = 2*64;
 
 % Now resample the data for that number of sensors.
 xtr = dx*(channels*floor(numSensors/channels)); % Width of "sensor" [mm]
@@ -197,8 +208,9 @@ halfwayIndex = floor( numTimeSteps )./2;
 %% Compute Field with Angular Spectrum Approach
 
 % Set up number of padding channels (in each direction!)
-padChannels = numSensors;
-totalChannels = 4*128; % This is the number of chanels, plus the number of pad channels
+% padChannels = numSensors;
+% This is the number of chanels, plus the number of pad channels
+totalChannels = round( padFactor.*channels ); 
 
 % Set the number of points at which the field will be calculated
 zEvaluationPoints = 256;
@@ -268,6 +280,25 @@ if useEntireTransverseRange
     cFieldMeanPlane = mean( ...
         dataC( :, zStartIndex : zEndIndex ), 1 );
 else
+    
+    %%%%%%%%%% DEBUG %%%%%%%%%%%%%%%%%
+    % Now we'll toss the data from the ends of the array, so make sure we
+    % don't have pad channels
+    if padFactor ~= 1
+        error( 'Does not yet work with pad channels. Set padFactor to 1.' );
+    end
+    
+    % Find the min and max channels to keep
+    minChannelIndex = floor( ...
+        (0.5 - transverseSpan./2).*channels );
+    maxChannelIndex = ceil( ...
+        (0.5 + transverseSpan./2).*channels );
+    
+    % Set channels outside range to 0
+    paddedArrayDataTilde( :, 1:minChannelIndex - 1 ) = 0;
+    paddedArrayDataTilde( :, maxChannelIndex + 1:end ) = 0;
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
     % Initialize vector to hold averaged values
     numXPoints = length( data.yPositionVector );
@@ -370,6 +401,7 @@ interpolatedC = interp1( rawPoints, clippedC, interpPoints );
 zCenterEachLayer = zeros(1, numLayers);
 cEachLayer = zeros(1, numLayers);
 
+tic;
 % Now for each frequency bin
 for fCount = 1:ss(1)
     
@@ -401,6 +433,7 @@ for fCount = 1:ss(1)
     % Get layer positions if specified or divide up evenly
     layerPositionsSpecified = ~isequal( layerPositions, 0 );
     if layerPositionsSpecified
+        layerPositions = layerPositions - fdtdOffset;
         numLayers = length( layerPositions ) + 1;
         zIndexLayers = zeros(1, numLayers);
         % Find index corresponding to start of each layer
@@ -415,7 +448,6 @@ for fCount = 1:ss(1)
         zIndexLayers = round( (length(z)./numLayers).*( 1 : numLayers ) );
         zIndexLayers(end) = length(z); % Don't overshoot end
     end
-
     
     % Initialize angular spectrum at source plane
     previousAS = P;
@@ -486,17 +518,20 @@ end
 clc;
 computationTime = toc;
 displayString = ...
-    sprintf( 'ASA Method Computation Time: %6.2f s', computationTime );
+    sprintf( 'ASA Method Computation Time: %6.4f s', computationTime );
 disp( displayString );
 
 %% Plot angular spectrum result
+
+% Account for FDTD offset
+z = z - fdtdOffset;
 
 if plotSoundSpeedProfile
     figure()
     hold all;
     box on;
     % Interpolated sound speed profile
-    layerSpeeds = plot( 1E3.*zCenterEachLayer, cEachLayer, '-or' );
+    layerSpeeds = plot( 1E3.*(zCenterEachLayer) , cEachLayer, '-or' );
     profileSpeeds = plot( 1E3.*z, interpolatedC, 'k' );
     xlabel( 'Distance from Receiver [mm]' );
     ylabel( 'Effective Sound Speed [m/s]' );
@@ -510,7 +545,7 @@ hold all;
 
 % Plot reconstructed map
 [ xAsaPlot, zAsaPlot ] = meshgrid( x, z );
-pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamap );
+pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamap./max(max(abs(asamap))) );
 shading flat;
 
 % Plot layer positions
@@ -546,29 +581,47 @@ set( gca, 'XDir', 'reverse' );
 ylim( [-40, 40] );
 xlim( [0, 80] );
 
-xlabel( 'Distance from Receiver [mm]' );
-ylabel( 'Sensor Position [mm]' );
+xlabel( 'Distance from Receiver [mm]', 'FontSize', 26 );
+ylabel( 'Transverse Distance [mm]', 'FontSize', 26 );
 
 % caxis([0, 3E5]);
-max(max(asamap))
 
 cBarHandle = colorbar;
 
-cBarHandle.Label.String = '';
-cBarHandle.Label.FontSize = 16;
+cBarHandle.Label.String = 'Normalized Intensity';
+cBarHandle.Label.FontSize = 22;
 cBarHandle.Label.Interpreter = 'latex';
 cBarHandle.TickLabelInterpreter = 'latex';
 
-% Get axial profile
+% Get profiles at peak value
+[maxValue, maxIndex] = max( asamap(:) );
+[maxRow, maxCol] = ind2sub( size(asamap), maxIndex );
+
+% Axial profile
 figure()
-middleIndex = round(length(x)./2) + 1;
-centerProfile = asamap( :, middleIndex );
-centerProfileNorm = centerProfile./max(centerProfile);
-plot( 1E3.*z, centerProfileNorm, 'k' );
+axialProfile = asamap( :, maxCol );
+axialProfileNorm = axialProfile./max(axialProfile);
+plot( 1E3.*z, axialProfileNorm, 'k' );
 ylim( [0, 1.01] );
 xlabel( 'Distance From Receiver [mm]' );
 set( gca, 'XDir', 'Reverse' );
 ylabel( 'Normalized Intensity' );
+
+fwhm( axialProfileNorm, z.*1E3, 1 );
+
+% % Transverse profile
+% figure()
+% transProfile = asamap( maxRow, : );
+% transProfileNorm = transProfile./max(transProfile);
+% plot( 1E3.*x, transProfileNorm, 'k' );
+% ylim( [0, 1.01] );
+% xlabel( 'Transverse Distance [mm]' );
+% set( gca, 'XDir', 'Reverse' );
+% ylabel( 'Normalized Intensity' );
+% 
+% fwhm( transProfileNorm, z.*1E3, 1 );
+
+% Get transverse profile
 
 % % Get axial profile
 % figure()

@@ -25,7 +25,8 @@ sourcePositions = [ ... % (x, y) positions [m]
     ]./1E3;
 
 % Load in the data file of interest
-domain = load(dataFile);
+data = load(dataFile);
+domain = data.domain;
 
 % Get relevant parameters from file
 dx = domain.res*1E-3; % Distance between nodes [m]
@@ -51,7 +52,7 @@ pcolor( x.*1E3, y.*1E3, c );
 shading flat;
 
 % Plot the sources' and receiver positions
-plot( sourcePositions(:, 1).*1E3, sourcePositions(:, 2).*1E3, 'ro' );
+% plot( sourcePositions(:, 1).*1E3, sourcePositions(:, 2).*1E3, 'ro' );
 plot( 1E3.*[recPosition, recPosition], ...
     1E3.*[min(yPositionVector), max(yPositionVector)], '--w' );
 
@@ -69,8 +70,8 @@ plot( 1E3.*[recPosition, recPosition], ...
 % cBarHandle.Label.Interpreter = 'latex';
 % cBarHandle.TickLabelInterpreter = 'latex';
 
-xlabel( 'Axial Distance [mm]', 'FontSize', 22 );
-ylabel( 'Transverse Distance [mm]', 'FontSize', 22 );
+xlabel( 'Axial Distance [mm]', 'FontSize', 26 );
+ylabel( 'Transverse Distance [mm]', 'FontSize', 26 );
 
 xlim( 1E3.*[min(xPositionVector), max(xPositionVector)] );
 ylim( 1E3.*[min(yPositionVector), max(yPositionVector)] );
@@ -80,7 +81,7 @@ axis equal;
 cBarHandle = colorbar;
 
 cBarHandle.Label.String = 'Sound Speed [m/s]';
-cBarHandle.Label.FontSize = 20;
+cBarHandle.Label.FontSize = 26;
 cBarHandle.Label.Interpreter = 'latex';
 cBarHandle.TickLabelInterpreter = 'latex';
 

@@ -26,8 +26,10 @@ clc;
 %% Load in data file data file
 disp('Loading file...');
 tic;
+% sourceFile = ...
+%     '../data/results/skullData_3bub';
 sourceFile = ...
-    '../data/results/oneBubble/stratifiedMedium_sqrt_4000mps_1bub_rec100mm';
+    '../data/results/stratified_gaussian_5bubDelayed_2500pk_005RangeSigma.mat';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -39,7 +41,7 @@ numTargets = data.numSources; % Number of targets
 dx = data.dx*1E3; % Element spacing [mm]
 
 % Medium proerties
-c = 1500; % [m/s]
+c = 3000; % [m/s]
 rho0 = 1000; % [kg/m^3]
 
 % Set location of the probe [mm]
@@ -128,10 +130,10 @@ end
 
 %% Add noise to the rf data and display them
 rf = rf1;
-% for mm = 1:channels
-%     SNR = 120; % [dB] 120 - Almost no noise, 58/62 - High noise
-%     rf(mm, :) = addGaussianWhiteNoise(rf1(mm,:),SNR);
-% end
+for mm = 1:channels
+    SNR = 70; % [dB] 120 - Almost no noise, 58/62 - High noise
+    rf(mm, :) = addGaussianWhiteNoise(rf1(mm,:),SNR);
+end
 
 % Power spectrum at center channel
 centerChannelIndex = round( numSensors./2 );
@@ -203,13 +205,14 @@ zStartIndex = find( ... % Will fail if z depth too big
     dataZ > (data.recPosition - (z(end) + dx)), 1 ); % Add to make sure zClipped has bigger range than z
 zEndIndex = find( ...
     dataZ > (data.recPosition - z(1)), 1 );
-% Use profile along any row (since it's stratified). I chose 4 since it's
+% Use profile along any row (since it's stratified). I chose 128 since it's
 % more likely to catch eyes than 1.
-cClipped = dataC( 4, zStartIndex : zEndIndex );
+cClipped = dataC( 128, zStartIndex : zEndIndex );
 zClipped = data.recPosition - dataZ( zStartIndex : zEndIndex );
 
 % Interpolate sound speed to evaluated z depths
 c_z = interp1( zClipped, cClipped, z );
+c = mean( c_z );
 
 % Time reconstruction
 tic
@@ -255,15 +258,16 @@ for fCount = 1:ss(1)
     lambda_z = (omega.^(2)./c.^(2)).*( 1 - mu_z );
     
     % Now compute the phase delay for each receiver for each depth
-    trueFalseMatrix = ( imag(kz) == 0 );
-    kzLoop = trueFalseMatrix.*kz;
     phi = zeros( length(z), length(x) );
     for zCount = 1:length(z)
         
         integrand = lambda_z(1:zCount).*dz;
-        phi(zCount, :) = (1./(2.*kzLoop(zCount, :))).*sum( integrand );
+        phi(zCount, :) = (1./(2.*kz(zCount, :))).*sum( integrand );
        
     end
+    
+    % Set pure imaginary elements to 0
+    phi = mod( real(phi), 2.*pi );
            
     % Apply shift to data  and take inverse transform to recover field at
     % each z evaluation point.
@@ -271,11 +275,9 @@ for fCount = 1:ss(1)
         ifftshift( Pv.*exp(1j.*kz.*zv'), 2), [], 2 ...
         );
     
-    % Compute phase correction
-    phaseCorrection = exp( 1j.*phi );
-    phaseCorrection( isnan( phaseCorrection ) ) = 1;
+    % Add in phase correction
     asa = ifft( ...
-        ifftshift( Pv.*exp( 1j.*(kz.*zv' - real(phi) ) ), 2), [], 2 ...
+        ifftshift( Pv.*exp( 1j.*kz.*zv' + 1j.*phi ), 2), [], 2 ...
         );
     
     % Get squared magnitude of the signal
@@ -285,17 +287,6 @@ for fCount = 1:ss(1)
     % Add contribution of this frequency
     asamapRef = asamapRef + asaRef;
     asamap = asamap + asa;
-    
-    %%%%%%% DEBUG %%%%%%%
-    figure(103)
-    subplot( 1, 2, 1)
-    pcolor( real(phi') );
-    shading flat;
-    subplot( 1, 2, 2)
-    pcolor( asamap' );
-    shading flat;
-    pause(0.1);
-    %%%%%%%%%%%%%%%%%%%%%
     
 end
 
@@ -360,3 +351,6 @@ xlim( [0, 80] );
 xlabel( 'Distance from Receiver [mm]' );
 ylabel( 'Sensor Position [mm]' );
 title( 'No Phase Adjustment' );
+
+% Plot phase corrections
+run phaseCorrectionPlotter.m

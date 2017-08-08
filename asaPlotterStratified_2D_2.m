@@ -26,14 +26,26 @@ clc;
 %% Load in data file data file
 disp('Loading file...');
 tic;
-sourceFile = ...
-    '../data/results/oneBubble/stratifiedMedium_sqrt_4000mps_1bub_rec100mm';
 % sourceFile = ...
-%     '../data/results/oneBubble/stratifiedMedium_200mps_025mm_1bub';
+%     '../data/results/skullData_3bub';
+% sourceFile = ...
+%     '../data/results/oneBubble/uniform/uniformMedium_1500mps_1bub_4040';
+sourceFile = ...
+    '../data/results/oneBubble/circularLayer/circularLayer_3000mps_4040_1bub_4045';
+% sourceFile = ...
+%     '../data/results/oneBubble/stratified/stratified_gaussian_2500pk_005RangeSigma_1bub_4040.mat';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
 %% Set parameters
+
+% ------------------------ Other Settings ---------------------------------
+fdtdOffset = 19.*data.dx;
+padFactor = 1; % 1 - No Pad channels, 2 - Pad by N/2, etc.
+constructEntireRegion = 0;
+zRange = [50, 70]./1E3 + fdtdOffset; % Set range of reconstruction [m]
+isTrulyStratified = 0;
+% -------------------------------------------------------------------------
 
 bin = 'y';
 deld = 2;
@@ -41,7 +53,7 @@ numTargets = data.numSources; % Number of targets
 dx = data.dx*1E3; % Element spacing [mm]
 
 % Medium proerties
-c = 2500; % [m/s]
+c = 3000; % [m/s]
 rho0 = 1000; % [kg/m^3]
 
 % Set location of the probe [mm]
@@ -64,7 +76,7 @@ numSensors = ss(1);
 numTimeSteps = ss(2);
 
 % Set the number of receiving channels. The number of 
-channels = 64*2;
+channels = 128;
 
 % Now resample the data for that number of sensors.
 xtr = dx*(channels*floor(numSensors/channels)); % Width of "sensor" [mm]
@@ -130,10 +142,10 @@ end
 
 %% Add noise to the rf data and display them
 rf = rf1;
-% for mm = 1:channels
-%     SNR = 120; % [dB] 120 - Almost no noise, 58/62 - High noise
-%     rf(mm, :) = addGaussianWhiteNoise(rf1(mm,:),SNR);
-% end
+for mm = 1:channels
+    SNR = 70; % [dB] 120 - Almost no noise, 58/62 - High noise
+    rf(mm, :) = addGaussianWhiteNoise(rf1(mm,:),SNR);
+end
 
 % Power spectrum at center channel
 centerChannelIndex = round( numSensors./2 );
@@ -149,7 +161,8 @@ halfwayIndex = floor( numTimeSteps )./2;
 
 % Set up number of padding channels (in each direction!)
 padChannels = numSensors;
-totalChannels = 4*128; % This is the number of chanels, plus the number of pad channels
+% This is the number of chanels, plus the number of pad channels
+totalChannels = round( padFactor.*channels ); 
 
 % Set the number of points at which the field will be calculated
 zEvaluationPoints = 256;
@@ -205,13 +218,86 @@ zStartIndex = find( ... % Will fail if z depth too big
     dataZ > (data.recPosition - (z(end) + dx)), 1 ); % Add to make sure zClipped has bigger range than z
 zEndIndex = find( ...
     dataZ > (data.recPosition - z(1)), 1 );
-% Use profile along any row (since it's stratified). I chose 4 since it's
+% Use profile along any row (since it's stratified). I chose 117 since it's
 % more likely to catch eyes than 1.
-cClipped = dataC( 4, zStartIndex : zEndIndex );
+cClipped = dataC( 117, zStartIndex : zEndIndex );
+% %%%%%%% DEBUG %%%%%%%
+if ~isTrulyStratified
+    cClipped = mean( dataC(:, zStartIndex : zEndIndex ), 1 );
+    disp( 'Averaging sound speed in x.' );
+end
+% %%%%%%%%%%%%%%%%%%%%%%
 zClipped = data.recPosition - dataZ( zStartIndex : zEndIndex );
 
 % Interpolate sound speed to evaluated z depths
 c_z = interp1( zClipped, cClipped, z );
+c = mean( c_z );
+
+% To reconstruct at a subset of points
+if ~constructEntireRegion
+    
+    % Adjust offset
+    if ~isTrulyStratified
+        zSpanNew = max(zRange) - min(zRange);
+        zSpanOld = max(z) - min(z);
+        ratio = zSpanNew./zSpanOld;
+        fdtdOffset = ratio.*fdtdOffset;
+    end
+    
+    zStartIndex = find( z > zRange(1), 1 );
+    zEndIndex = find( z > zRange(2), 1 );
+    z = z( zStartIndex : zEndIndex );
+    c_z = c_z( zStartIndex : zEndIndex );
+    asamap = zeros(length(z), totalChannels);
+
+end
+
+% Compute phase delays for all frequncies and positions
+tic;
+phiMat = zeros( length(ss(1)), length(z), length(x) );
+for fCount = 1 : ss(1)
+    
+    % Get the center frequency
+    fc = fVector(fbins(fCount)); % [Hz]
+    omega = 2*pi*fc; % [rad/s]
+    
+    % Assemble wavenumber vector
+    dx = x(2)-x(1);
+    dk = 2.*pi./dx; % Wavenumber increment
+    startValue = ( -floor( length(x)/2 ) );
+    endValue = ( ceil( length(x)/2 ) - 1 );
+    
+    % Create wavenumber vector
+    k = (startValue:endValue).*dk./length(x);
+    
+    % Compute the propagating wavenumber
+    kv = repmat(k, [length(z), 1]);
+
+    % Get the wavenumber in the propagation direction
+    kz = sqrt( omega.^(2)./c.^(2) - kv.^(2) );    
+    
+    % Compute the phase delay
+    c0 = c; % Reference sound speed
+    cPrime = fliplr( c_z - c0 ); % Measure back from receiver
+    mu_z = ( 1 + cPrime./c0 ).^(-2);
+    lambda_z = (omega.^(2)./c.^(2)).*( 1 - mu_z );
+          
+    % Now compute the phase delay for each receiver for each depth
+    for zCount = 1:length(z)
+        
+        integrand = lambda_z(1:zCount).*dz;
+        phiMat(fCount, zCount, :) = (1./(2.*kz(zCount, :))).*sum( integrand );
+       
+    end
+    
+end
+% Set pure imaginary elements to 0
+phiMat = mod( real(phiMat), 2.*pi );
+clc;
+computationTime = toc;
+displayString = ...
+    sprintf( 'Phase Delay Computation Time: %6.2f s', computationTime );
+disp( displayString );
 
 % Time reconstruction
 tic
@@ -248,65 +334,28 @@ for fCount = 1:ss(1)
     zv = repmat(z, [length(x), 1]); % 
 
     % Get the wavenumber in the propagation direction
-    kz = sqrt( omega.^(2)./c.^(2) - kv.^(2) );
+    kz = sqrt( omega.^(2)./c.^(2) - kv.^(2) );     
     
-    % Compute the phase delay
-    c0 = c; % Maybe mean( c_z )?
-    cPrime = fliplr( c_z - c0 ); % Measure back from receiver
-    mu_z = ( 1 + cPrime./c0 ).^(-2);
-    lambda_z = (omega.^(2)./c.^(2)).*( 1 - mu_z );
+    % Get additional phase delay
+    phi = squeeze( phiMat( fCount, :, : ) );
     
-    % Now compute the phase delay for each receiver for each depth
-    phi = zeros( length(z), length(x) );
-    for zCount = 1:length(z)
-        
-        integrand = lambda_z(1:zCount).*dz;
-        phi(zCount, :) = (1./(2.*kz(zCount, :))).*sum( integrand );
-       
-    end
-    % Set pure imaginary elements to 0
-    phi = real(phi);
-           
-    % Apply shift to data  and take inverse transform to recover field at
-    % each z evaluation point.
-    asaRef = ifft( ...
-        ifftshift( Pv.*exp(1j.*kz.*zv'), 2), [], 2 ...
-        );
-    
-    % Compute phase correction
-    phaseCorrection = exp( 1j.*phi );
-    phaseCorrection( isnan( phaseCorrection ) ) = 1;
-    
+    % Add in phase correction
     asa = ifft( ...
-        ifftshift( Pv.*exp( 1j.*kz.*zv' ).*phaseCorrection, 2), [], 2 ...
+        ifftshift( Pv.*exp( 1i.*kz.*zv' + 1i.*phi ), 2), [], 2 ...
         );
     
     % Get squared magnitude of the signal
-    asaRef = 2*( abs(asaRef) ).^(2);
     asa = 2*( abs(asa) ).^(2);
     
     % Add contribution of this frequency
-    asamapRef = asamapRef + asaRef;
     asamap = asamap + asa;
-    
-    %%%%%%% DEBUG %%%%%%%
-    figure(103)
-    subplot( 1, 2, 1)
-    pcolor( real(phi') );
-    shading flat;
-    subplot( 1, 2, 2)
-    pcolor( asamap' );
-    shading flat;
-    pause(0.1);
-    %%%%%%%%%%%%%%%%%%%%%
     
 end
 
 % Display computation time
-clc;
 computationTime = toc;
 displayString = ...
-    sprintf( 'ASA Method Computation Time: %6.2f s', computationTime );
+    sprintf( 'ASA Method Computation Time: %6.4f s', computationTime );
 disp( displayString );
 
 %% Plot angular spectrum result
@@ -314,8 +363,11 @@ disp( displayString );
 figure()
 hold all;
 
+% Account for FDTD offset
+z = z - fdtdOffset;
+
 [ xAsaPlot, zAsaPlot ] = meshgrid( x, z );
-pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamap );
+pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamap./max( asamap(:) ) );
 shading flat;
 
 % Plot source positions
@@ -333,33 +385,43 @@ set( gca, 'XDir', 'reverse' );
 ylim( [-40, 40] );
 xlim( [0, 80] );
 
-xlabel( 'Distance from Receiver [mm]' );
-ylabel( 'Sensor Position [mm]' );
-title( 'With Phase Adjustment' );
+xlabel( 'Distance from Receiver [mm]', 'FontSize', 26 );
+ylabel( 'Transverse Distance [mm]', 'FontSize', 26 );
 
-% Reference Plot
+cBarHandle = colorbar;
+
+cBarHandle.Label.String = 'Normalized Intensity';
+cBarHandle.Label.FontSize = 22;
+cBarHandle.Label.Interpreter = 'latex';
+cBarHandle.TickLabelInterpreter = 'latex';
+
+% Get profiles at peak value
+[maxValue, maxIndex] = max( asamap(:) );
+[maxRow, maxCol] = ind2sub( size(asamap), maxIndex );
+
+% Axial profile
 figure()
-hold all;
+axialProfile = asamap( :, maxCol );
+axialProfileNorm = axialProfile./max(axialProfile);
+plot( 1E3.*z, axialProfileNorm, 'k' );
+ylim( [0, 1.01] );
+xlabel( 'Distance From Receiver [mm]' );
+set( gca, 'XDir', 'Reverse' );
+ylabel( 'Normalized Intensity' );
 
-[ xAsaPlot, zAsaPlot ] = meshgrid( x, z );
-pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamapRef );
-shading flat;
+fwhm( axialProfileNorm, z.*1E3, 1 );
 
-% Plot source positions
-% Axial position relative to receiver
-zSources = data.recPosition - data.sourcePositions( :, 1 );
-% Lateral position relative to receiver center
-xSpan = max(data.yPositionVector) - min(data.yPositionVector);
-offset = xSpan./2 - dx;
-xSources = data.sourcePositions( :, 2 )  - offset;
-plot( zSources.*1E3, xSources.*1E3, 'ro' );
+% Transverse profile
+figure()
+transProfile = asamap( maxRow, : );
+transProfileNorm = transProfile./max(transProfile);
+plot( 1E3.*x, transProfileNorm, 'k' );
+ylim( [0, 1.01] );
+xlabel( 'Transverse Distance [mm]' );
+set( gca, 'XDir', 'Reverse' );
+ylabel( 'Normalized Intensity' );
 
-% Reverse x-direction to mirror arrangement
-set( gca, 'XDir', 'reverse' );
+% fwhm( transProfileNorm, z.*1E3, 1 );
 
-ylim( [-40, 40] );
-xlim( [0, 80] );
-
-xlabel( 'Distance from Receiver [mm]' );
-ylabel( 'Sensor Position [mm]' );
-title( 'No Phase Adjustment' );
+% Plot phase corrections
+run phaseCorrectionPlotter.m

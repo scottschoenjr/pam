@@ -1,108 +1,89 @@
-function fwhm_val = fwhm(f, x, plot_fwhm)
-%FWHM   Compute the full width at half maximum.
+% *************************************************************************
+% Find Maximum and FWHM of 1D data trace
 %
-% DESCRIPTION:
-%       fwhm calculates the Full Width at Half Maximum (FWHM) of a
-%       positive 1D input function f(x) with spacing given by x.
+%   fwhm calculates the Full Width at Half Maximum (FWHM) of a
+%   positive 1D input function yData(xData) with spacing given by xData.
 %
-% USAGE:
-%       fwhm_val = fwhm(f, x)
-%       fwhm_val = fwhm(f, x, plot_fwhm)
+% Inputs
+%   yData    - 1-D data data
+%   yData    - xData data (or dx)
+%   plotFwhm - [optional 1 to plot result or 0 not to
 %
-% INPUTS:
-%       f           - f(x) data
-%       x           - x data or dx
+% Outputs
+%   fwhm      - FWHM of data
+%   xMaxValue - Coordinate of maximum value
 %
-% OPTIONAL INPUTS:
-%       plot_fwhm   - Boolean controlling whether a plot of the function
-%                     and FWHM is produced.
-%
-% OUTPUTS:
-%       fwhm_val    - FWHM of f(x)
-%
-% ABOUT:
-%       author      - Bradley Treeby
-%       date        - 5th May 2009
-%       last update - 29th May 2013
-%
-% This function is part of the k-Wave Toolbox (http://www.k-wave.org)
-% Copyright (C) 2009-2014 Bradley Treeby and Ben Cox
+% Based on fwhm.m from k-Wave Toolbox (http://www.k-wave.org),
+% © 2009-2014 Bradley Treeby and Ben Cox, licensed under GNU/GPL v3.
+% 
+%**************************************************************************
 
-% This file is part of k-Wave. k-Wave is free software: you can
-% redistribute it and/or modify it under the terms of the GNU Lesser
-% General Public License as published by the Free Software Foundation,
-% either version 3 of the License, or (at your option) any later version.
-% 
-% k-Wave is distributed in the hope that it will be useful, but WITHOUT ANY
-% WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-% FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
-% more details. 
-% 
-% You should have received a copy of the GNU Lesser General Public License
-% along with k-Wave. If not, see <http://www.gnu.org/licenses/>. 
+function fwhm = fwhm(yData, xData, plotFwhm)
 
 % check for optional inputs
 if nargin == 2
-    plot_fwhm = false;
+    plotFwhm = 1;
 end
 
-% check if dx is given in place of an x array
-if length(x) == 1
-    x = 0:x:(length(f)-1)*x;
+% check if dx is given in place of an xData array
+if length(xData) == 1
+    xData = 0:xData:(length(yData)-1)*xData;
 end
 
 % check the input is 1D
-if numDim(f) ~= 1
+if numDim(yData) ~= 1
     error('input function must be 1 dimensional');
 end
 
-% find the maximum value of f(x)
-[f_max i_max] = max(f);
+% find the maximum value of yData(xData)
+[f_max, i_max] = max(yData);
 
 % setup the indexing variables for finding the leading edge
 index = i_max;
 
 % loop until the index at half maximum is found
-while f(index) > 0.5*f_max 
+while yData(index) > 0.5*f_max 
     index = index - 1;
     if index < 1
         error('left half maximum not found');
     end
 end
 
-% linearly interpolate between the previous values to find the value of x
+% linearly interpolate between the previous values to find the value of xData
 % at the leading edge at half maximum
-m = (f(index+1) - f(index))/(x(index+1) - x(index));
-c = f(index) - x(index)*m;
+m = (yData(index+1) - yData(index))/(xData(index+1) - xData(index));
+c = yData(index) - xData(index)*m;
 i_leading = (0.5*f_max  - c)/m;
 
 % setup the indexing variables for finding the trailing edge
 index = i_max;
 
 % loop until the index at half maximum is found
-while f(index) > 0.5*f_max 
+while yData(index) > 0.5*f_max 
     index = index + 1;
-    if index > length(f)
+    if index > length(yData)
         error('right half maximum not found');
     end
 end
 
-% linearly interpolate between the previous values to find the value of x
-% at the trailing edge at half maximum
-m = (f(index-1) - f(index))/(x(index-1) - x(index));
-c = f(index) - x(index)*m;
+% Linearly interpolate between the previous values to find the value of 
+% xData at the trailing edge at half maximum
+m = (yData(index-1) - yData(index))/(xData(index-1) - xData(index));
+c = yData(index) - xData(index)*m;
 i_trailing = (0.5*f_max  - c)/m;
     
 % compute the FWHM
-fwhm_val = abs(i_trailing - i_leading);
+fwhm = abs(i_trailing - i_leading);
 
 % plot the function and the FWHM if required
-if plot_fwhm   
+if plotFwhm   
     figure;
-    plot(x, f, 'b-');
+    plot(xData, yData, 'b-');
     xlabel('x');
     ylabel('f(x)');    
     hold on;
     plot([i_leading i_trailing], [0.5*f_max 0.5*f_max], 'r*-');
-    title(['Full Width At Half Maximum (FWHM): ' num2str(fwhm_val) ]);
+    title(['FWHM: ' num2str(fwhm), ' at x = ', num2str(xData(i_max)) ]);
+end
+
 end

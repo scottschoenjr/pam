@@ -27,7 +27,7 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/uniformMedium_1500mps_1bub';
+    '../data/results/oneBubble/uniform/uniformMedium_1500mps_1bub_4040.mat';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -298,18 +298,23 @@ hold all;
 tdReconstruction = img_frm;
 xVector = vox.x - min(vox.x);
 zVector = vox.z;
+
+
+% Add offset
+offset = 5.*dx;
+xVector = xVector - offset;
 [x, z] = meshgrid( zVector, xVector );
 
 % Plot source positions
 zSourcesPlot = data.recPosition - data.sourcePositions( :, 1 );
-xSourcesPlot = data.sourcePositions( :, 2 ); % + 10.*dx./1E3;
+xSourcesPlot = data.sourcePositions( :, 2 );
 
 % Since ASA plotter treats array center as 0 for x-position, shift all our
 % x-values by half of the x-span
 xSpan = max(data.yPositionVector) - min(data.yPositionVector); % [mm]
 
 % Now issue plotting commands
-pcolor( z, x - 1E3.*xSpan./2, tdReconstruction );
+pcolor( z, x - 1E3.*xSpan./2 - dx, tdReconstruction./max(abs(tdReconstruction(:))));
 shading flat;
 plot( zSourcesPlot.*1E3, (xSourcesPlot - xSpan./2).*1E3, 'ro' );
 
@@ -318,20 +323,36 @@ set( gca, 'XDir', 'Reverse' );
 ylim( [-40, 40] );
 xlim( [0, 80] );
 
-xlabel( 'Distance from Receiver [mm]' );
-ylabel( 'Transverse Distance [mm]' );
+xlabel( 'Distance from Receiver [mm]', 'FontSize', 26 );
+ylabel( 'Transverse Distance [mm]', 'FontSize', 26 );
 
-% Poster plot
-pcolor( z, x - 1E3.*xSpan./2, tdReconstruction./max(max(abs(tdReconstruction) ) ) );
-xlabel( 'Axial Distance [mm]', 'FontSize', 22 );
-ylabel( 'Transverse Distance [mm]', 'FontSize', 22 );
-caxis([0, 1]);
+% % Poster plot
+% pcolor( z, x - 1E3.*xSpan./2, tdReconstruction./max(max(abs(tdReconstruction) ) ) );
+% xlabel( 'Axial Distance [mm]', 'FontSize', 28 );
+% ylabel( 'Transverse Distance [mm]', 'FontSize', 28 );
+% caxis([0, 1]);
 
 cBarHandle = colorbar;
 
 cBarHandle.Label.String = 'Normalized Intensity';
-cBarHandle.Label.FontSize = 20;
+cBarHandle.Label.FontSize = 26;
 cBarHandle.Label.Interpreter = 'latex';
 cBarHandle.TickLabelInterpreter = 'latex';
+
+% Get profiles at peak value
+[maxValue, maxIndex] = max( tdReconstruction(:) );
+[maxRow, maxCol] = ind2sub( size(tdReconstruction), maxIndex );
+
+% Axial profile
+figure()
+axialProfile = tdReconstruction( :, maxCol );
+axialProfileNorm = axialProfile./max(axialProfile);
+plot( zVector, axialProfileNorm, 'k' );
+ylim( [0, 1.01] );
+xlabel( 'Distance From Receiver [mm]' );
+set( gca, 'XDir', 'Reverse' );
+ylabel( 'Normalized Intensity' );
+
+fwhm( axialProfileNorm, z, 1 );
 
 

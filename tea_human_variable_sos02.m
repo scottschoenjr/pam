@@ -5,17 +5,18 @@
 close all;
 clear all;
 %% parameters and constants
-skul_cor='y'
+skul_cor='n'
 tic
 Sdir='C:\Users\carvanitis7\OneDrive - Georgia Institute of Technology\FDTD-ASA-Scott\data\simulated\Human';
 Sdir1='880kHz_aeattscabs_2Dhead_crop_res100um_1gps';
-data=load([Sdir filesep ([Sdir1 '.mat'])]);
+data = load( ...
+    '../data/results/oneBubble/layeredMedium_3000mps_04mm_1bub.mat' );
 % trgt=4;
 dx=data.dx*1e3;%elements distance in [mm]
 locz = dx*(data.xDim-5)-data.excit_loc(1,2)*dx;%position of the porb in mm
 % locx=(data.excit_loc(trgt,1)+2*round(data.ratio*data.num))*dx;
 locx=(data.excit_loc(1,1))*dx;
-distance=round(data.ratio*data.num)*dx;
+
 dt =data.t(2);
 t = data.t;%time in seconds t(end)*c0*1000=distance in mm
 
@@ -68,7 +69,7 @@ if skul_cor=='y'
     %             mapsos(:,end-12/step:end)=1479;
     %             sos=[mapsos(:,end-12/step:end),mapsos(:,1:end-12/step+1)];
 else
-    sos = mean(data.domain.ctot(data.excit_loc(1,1),data.excit_loc(1,2):end-5));% the images is the same for all simulations
+    sos = mean(data.domain.extctot(data.excit_loc(1,1),data.excit_loc(1,2):end-5));% the images is the same for all simulations
 %                 sos =1479.0;% % Speed of Sound [m/s]
 end
 %% passive ultrasonography algorithm

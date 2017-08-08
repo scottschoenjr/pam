@@ -27,15 +27,7 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/uniform/uniformMedium_1500mps_1bub_4040.mat';
-sourceFile = ...
-    '../data/results/oneBubble/skull/skullData_1bub_10mmoffset.mat';
-sourceFile = ...
-    '../data/results/oneBubble/stratified/stratified_gaussian_2500pk_005RangeSigma_1bub_4040.mat';
-sourceFile = ...
-    '../data/results/oneBubble/layeredMedium/layeredMedium_3000mps_04mm_1bub.mat';
-    sourceFile = ...
-        '../data/results/oneBubble/circularLayer/circularLayer_6000mps_20mm_4mm_4050';
+    '../data/results/uniformMedium_1500mps_3bub';
 data = load(sourceFile);
 disp(['               ...done (', num2str(toc), ' s).' ] )
 
@@ -46,20 +38,14 @@ disp(['               ...done (', num2str(toc), ' s).' ] )
 % 1 - Account for layer (see that code to adjust parameters
 % 2 - Use Averaged (in z) sound speed
 % 3 - Use stratified medium result (once it works...)
-soundSpeedMethod = 2;
+soundSpeedMethod = 0;
 
-%------------------ Other Settings --------------------------------------
-fdtdOffset = 12.*data.dx; % Calibrated for uniform medium at 1500 m/s
-padFactor = 1; % 1 - No Pad channels, 2 - Pad by N/2, etc.
-addNoise = 1;
-SNR = 0; % [dB] 120 - Almost no noise, 58/62 - High noise
-%-------------------------------------------------------------------------
-
-% % ------------------ Impulse Response Settings ----------------------------
-% % Select file to use impulse response
-% impulseResponseFile = ...
-%     '../data/ir/
-% % -------------------------------------------------------------------------
+% ------------------ Impulse Response Settings ----------------------------
+% Select file to use impulse response
+impulseResponseFile = ...
+    '../data/ir/IR_uniform_1500_4040';
+useImpulseResponse = 1;
+% -------------------------------------------------------------------------
 
 bin = 'y';
 deld = 2;
@@ -90,7 +76,7 @@ numSensors = ss(1);
 numTimeSteps = ss(2);
 
 % Set the number of receiving channels. The number of 
-channels = 320;
+channels = 64*2;
 
 % Now resample the data for that number of sensors.
 xtr = dx*(channels*floor(numSensors/channels)); % Width of "sensor" [mm]
@@ -105,15 +91,29 @@ rght_el = xtr/2; % [mm]
 step = 0.5;%in images is 0.5;
 near_coor = 0;
 far_coor = dx*data.yDim;
-far_coor = 80;
+
+% Load in the impulse response file if needed
+disp('Loading impulse response file...');
+tic;
+irDataStruct = load(impulseResponseFile);
+disp(['               ...done (', num2str(toc), ' s).' ] )
 
 %% Bin the data
 
 % Get the data starting rcn_x1 steps in
-rf128 = arrayData(:, rcn_x1:end );
+rfRaw = arrayData(:, rcn_x1:end );
+
+% Get the impulse respose data
+irRaw = irDataStruct.aedata(:, rcn_x1:end );
+
+% If we're going to use the impulse response, apply it here
+if useImpulseResponse
+    rfRaw = ifft( fft( rfRaw )./fft( irRaw ) );
+end
 
 % Initialize array to hold re-sampled data
 rf = zeros( channels, numTimeSteps - rcn_x1 + 1 );
+ir = 0.*rf; % To hold impulse response
 
 % If we're binning the data
 if bin == 'y'
@@ -128,13 +128,17 @@ if bin == 'y'
         
         % Assign to binned data array
         rf(jj,:) = sum( ...
-            rf128(startChannel:endChannel, :) ...
+            rfRaw(startChannel:endChannel, :) ...
+            );
+        ir(jj,:) = sum( ...
+            irRaw(startChannel:endChannel, :) ...
             );
         
     end
     
     % Correct for different binning
     rf1 = rf./sqrt(floor(ss(1)/channels));
+    ir1 = ir./sqrt(floor(ss(1)/channels));
     
 else
     
@@ -144,7 +148,8 @@ else
             % Get sensor data to be collected together into channel jj
             startChannel = (floor(numSensors/channels))*(jj-1) + 1;
             endChannel = (floor(numSensors/channels))*(jj-1) + deld + 1;
-            rf(jj,:) = sum(rf128(startChannel:endChannel,:));
+            rf(jj,:) = sum(rfRaw(startChannel:endChannel,:));
+            ir(jj,:) = sum(rfRaw(startChannel:endChannel,:));
         end
     else
         disp( 'deld is too large.' );
@@ -152,18 +157,17 @@ else
     
     % Correct for different binning
     rf1 = rf./deld;
+    ir1 = ir./deld;
     
 end
 
 %% Add noise to the rf data and display them
 rf = rf1;
-
-if addNoise
-    for channelCount = 1:channels
-        rf(channelCount, :) = addGaussianWhiteNoise( ...
-            rf1(channelCount,:), SNR );
-    end
-end
+ir = ir1;
+% for mm = 1:channels
+%     SNR = 120; % [dB] 120 - Almost no noise, 58/62 - High noise
+%     rf(mm, :) = addGaussianWhiteNoise(rf1(mm,:),SNR);
+% end
 
 % Plot raw data and power spectrum
 figure (10)
@@ -199,17 +203,18 @@ xlabel('Frequency [MHz]','FontWeight','bold');
 
 % Set up number of padding channels (in each direction!)
 padChannels = numSensors;
-% This is the number of chanels, plus the number of pad channels
-totalChannels = round( padFactor.*channels ); 
+totalChannels = 4*128; % This is the number of chanels, plus the number of pad channels
 
 % Set the number of points at which the field will be calculated
 zEvaluationPoints = 256;
 
 % Initialize angular spectrum map
 asamap = zeros(zEvaluationPoints, totalChannels);
+asamapir = zeros(zEvaluationPoints, totalChannels);
 
 % Pad the array data with 0s.
 paddedArrayData = padarray( double(rf), totalChannels/2 - channels/2 );
+paddedIR = padarray( double(ir), totalChannels/2 - channels/2 );
 
 % Set the image depth
 zlength = 1E-3*far_coor; % [m]
@@ -242,53 +247,13 @@ tic
 
 % Get the padded RF data into the appropriate dimension
 paddedArrayData = paddedArrayData';
+paddedIR = paddedIR';
 
 % Take the FFT of the padded data on each channel
 paddedArrayDataTilde = fft(paddedArrayData);
 
-% If the averaged sound speed is to be used, calculate it here
-if soundSpeedMethod == 2
-    
-    % Get simulation data
-    dataC = data.c; % Total field
-    sourcePositions = data.sourcePositions; % Position of sources
-    zStart = data.recPosition - z(end); % Position of leftmost
-    zEnd = data.recPosition - z(1); % Position of receiver
-    
-    % Get z-indidces of data to keep
-    dataZ = data.xPositionVector;
-    zStartIndex = find( dataZ > zStart, 1 );
-    zEndIndex = find( dataZ > zEnd, 1 );
-    
-    % Get portion of cField and average it
-    cField = dataC( :, zStartIndex : zEndIndex );
-    % Average sound speed in each plane
-    cFieldMeanPlane = mean( cField, 1 );
-    % Average sound speed in each plane, interpolated to the
-    % appropriate length
-    numPointsRaw = zEndIndex - zStartIndex + 1; % Points in data
-    rawPoints = linspace(0, 1, numPointsRaw);
-    numPointsInterp = length(z); % Number of points to interpolate to
-    interpPoints = linspace(0, 1, numPointsInterp );
-    cFieldMeanPlaneInterp = interp1( ...
-        rawPoints, cFieldMeanPlane, interpPoints );
-    
-    % New averaging...
-    % cProfile contains the average sound speed from the first to the
-    % current entry [e.g., cProfile(10) = mean(cFieldMeanPlane(1:10))]
-    cProfile = meanOfPreviousEntries( cFieldMeanPlaneInterp );
-    % But since we're measuring from back from the receiver array, we
-    % have to flip the profile lengthwise
-    cProfile = fliplr( cProfile );
-    % Repeat the profile along x for ASA reconstruction
-    c = ( repmat(cProfile, [length(x), 1]) )';
-    
-    cMean = mean( cFieldMeanPlane ); % Get the average of all planes
-    
-    % Set sound speed to this average
-    c = cMean;
-    
-end
+% Now deconvolve with the impulse response
+paddedIrDataTilde = fft(paddedIR);
 
 % Time reconstruction
 tic
@@ -300,14 +265,60 @@ for fCount = 1:ss(1)
     fc = fVector(fbins(fCount)); % [Hz]
     omega = 2*pi*fc; % [rad/s]
     
+    % If the averaged sound speed is to be used, calculate it here
+    if soundSpeedMethod == 2
+        
+        % Get simulation data
+        dataC = data.c; % Total field
+        sourcePositions = data.sourcePositions; % Position of sources
+        zStart = data.recPosition - z(end); % Position of leftmost
+        zEnd = data.recPosition - z(1); % Position of receiver
+        
+        % Get z-indidces of data to keep
+        dataZ = data.xPositionVector;
+        zStartIndex = find( dataZ > zStart, 1 );
+        zEndIndex = find( dataZ > zEnd, 1 );
+        
+        % Get portion of cField and average it
+        cField = dataC( :, zStartIndex : zEndIndex );
+        % Average sound speed in each plane
+        cFieldMeanPlane = mean( cField, 1 ); 
+        % Average sound speed in each plane, interpolated to the
+        % appropriate length
+        numPointsRaw = zEndIndex - zStartIndex + 1; % Points in data
+        rawPoints = linspace(0, 1, numPointsRaw);
+        numPointsInterp = length(z); % Number of points to interpolate to
+        interpPoints = linspace(0, 1, numPointsInterp );
+        cFieldMeanPlaneInterp = interp1( ...
+            rawPoints, cFieldMeanPlane, interpPoints );  
+        
+        % New averaging...
+        % cProfile contains the average sound speed from the first to the
+        % current entry [e.g., cProfile(10) = mean(cFieldMeanPlane(1:10))]
+        cProfile = meanOfPreviousEntries( cFieldMeanPlaneInterp );
+        % But since we're measuring from back from the receiver array, we
+        % have to flip the profile lengthwise
+        cProfile = fliplr( cProfile );
+        % Repeat the profile along x for ASA reconstruction
+        c = ( repmat(cProfile, [length(x), 1]) )';
+        
+        cMean = mean( cFieldMeanPlane ); % Get the average of all planes
+
+        % Set sound speed to this average
+        c = cMean;
+        
+    end
+    
     % ff the data at fc
     [zz, ff] = min( abs(fk-fc) );
     
     % Get complex data at fc for each channel - CC based on single FFT outside loop
     P = paddedArrayDataTilde( ff + 1, : );
+    Pir = paddedIrDataTilde( ff + 1, : );
     
     % Convert P into K-space
     P = fftshift(fft(P));
+    Pir = fftshift(fft(P));
     
     % Image reconstruction algorithm -------------
     dx = x(2)-x(1);
@@ -320,14 +331,12 @@ for fCount = 1:ss(1)
     
     % Initialize array to hold final image
     asa = zeros( length(z), totalChannels);
-    
-    %     for lp=1:length(z)
-    %         asa(lp,:)=(ifft(ifftshift(P.*exp(1i.*(z(lp)).*sqrt(w.^2./c.^2-k.^2)))))';
-    %     end;
-    
+    asair = 0.*asa;
+        
     % Vectorize so that we can perform the back propagation at each depth z
     % in a single step.
     Pv = repmat(P, [length(z), 1]); % totalChannels x zEvaluationPoints
+    Pvir = repmat(Pir, [length(z), 1]);
     kv = repmat(k, [length(z), 1]); % 
     zv = repmat(z, [length(x), 1]); % 
 
@@ -337,7 +346,10 @@ for fCount = 1:ss(1)
     % Apply shift to data  and take inverse transform to recover field at
     % each z evaluation point.
     asa = ifft( ...
-        ifftshift( Pv.*exp(1i.*kz.*zv'), 2), [], 2 ...
+        ifftshift( Pv.*exp(1j.*kz.*zv'), 2), [], 2 ...
+        );
+    asair = ifft( ...
+        ifftshift( Pvir.*exp(1j.*kz.*zv'), 2), [], 2 ...
         );
     
     % If we're propagating to single layer...
@@ -403,80 +415,15 @@ for fCount = 1:ss(1)
         
     end
     
-    % If we have a stratified medium, compute phase delay to add
-    if soundSpeedMethod == 3;
-        
-        % Get sound speed field and take a slice of it along z (any index 
-        % for x is fine since stratified
-        cField = data.c;
-        c_z = cField( centerChannelIndex, : );
-        
-        % Interpolate to depth computation points
-        simZ = data.xPositionVector;
-        c_z = interp1( simZ, c_z, z );
-        
-        % Get auxiliaty functions for that slice
-        c0 = 1500;
-        k0 = omega./c0;
-        mu_z = ( 1 - (c_z - c0)./c0 ).^(-2);
-        lambda_z = k0.^(2).*(1 - mu_z);
-        
-        % Perform integration to each z position
-        phi = zeros( zEvaluationPoints, totalChannels );
-        for zCount = 1:zEvaluationPoints
-            
-            zIndex = length(z) - zCount + 1;
-            
-            % Integrate from 1 to z
-            integrand = lambda_z( zCount : end ).*dz;
-            phi( zIndex, : ) = (0.5).*(1./kz(zIndex, :))* ...
-                sum( integrand )';
-            
-%             %%%%%%% DENUG %%%%%%%%
-%             figure(9988)
-%             cla;
-%             hold all;
-%             plot( z, lambda_z, 'k' );
-%             plot( z(zIndex), lambda_z(zIndex), 'ro' );
-%             ylabel( '$$\lambda(z)$$' );
-%             xlabel( '$$z$$' );
-%             drawnow;
-%             %%%%%%%%%%%%%%%%%%%%%%%
-        end
-        
-        %%%%%%% DEBUG %%%%%%%
-        figure(9989);
-        subplot( 2, 2, 1 )
-        pcolor( mod( real(phi), 2.*pi ) );
-        caxis( [0, 2.*pi] );
-        colorbar;
-        shading flat;
-        title( sprintf( '%3d kHz', floor(fc./1E3) ) );
-         
-        subplot( 2, 2, 3 )
-        pcolor( real(1./kz) );
-        caxis( [0, 1200] );
-        colorbar;
-        shading flat;
-        title( sprintf( '%3d kHz', floor(fc./1E3) ) );
-        
-        drawnow;
-        %%%%%%%%%%%%%%%%%%%%%
-        
-        % Add in phase shift to result
-        asa = ifft( ...
-            ifftshift( Pv.*exp( 1j.*kz.*zv' ).*exp( -phi ), 2), [], 2 ...
-            );
-        
-    end
-    
-    asaNotSquared = asa;
+    % Multiply 
     
     % Get squared magnitude of the signal
     asa = 2*( abs(asa) ).^(2);
+    asair = 2*( abs(asair) ).^(2);
     
     % Add contribution of this frequency
     asamap = asamap + asa;
+    asamapir = asamapir + asair;
     
 end
 
@@ -487,25 +434,10 @@ displayString = ...
     sprintf( 'ASA Method Computation Time: %6.2f s', computationTime );
 disp( displayString );
 
-%%%%%%%% DEBUG %%%%%%%%%%%
-if soundSpeedMethod == 4;
-    figure(999)
-    subplot( 2, 1, 1 )
-    plot( z.*1E3, c_z, 'k' );
-    ylabel( '$c$ [m/s]' );
-    subplot( 2, 1, 2 )
-    plot( z.*1E3, mu_z, 'k' );
-    ylabel( '$\mu$' );
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 %% Plot angular spectrum result
 
 figure()
 hold all;
-
-% Account for FDTD offset
-z = z - fdtdOffset;
 
 [ xAsaPlot, zAsaPlot ] = meshgrid( x, z );
 pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamap );
@@ -516,7 +448,7 @@ shading flat;
 zSources = data.recPosition - data.sourcePositions( :, 1 );
 % Lateral position relative to receiver center
 xSpan = max(data.yPositionVector) - min(data.yPositionVector);
-offset = (xSpan - dx)./2;
+offset = xSpan./2 - dx;
 xSources = data.sourcePositions( :, 2 )  - offset;
 plot( zSources.*1E3, xSources.*1E3, 'ro' );
 
@@ -526,13 +458,39 @@ set( gca, 'XDir', 'reverse' );
 ylim( [-40, 40] );
 xlim( [0, 80] );
 
-xlabel( 'Distance from Receiver [mm]', 'FontSize', 26 );
-ylabel( 'Transverse Distance [mm]', 'FontSize', 26 );
+xlabel( 'Distance from Receiver [mm]' );
+ylabel( 'Sensor Position [mm]' );
+
+figure()
+hold all;
+
+[ xAsaPlot, zAsaPlot ] = meshgrid( x, z );
+pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamap );
+shading flat;
+
+% Plot source positions
+% Axial position relative to receiver
+zSources = data.recPosition - data.sourcePositions( :, 1 );
+% Lateral position relative to receiver center
+xSpan = max(data.yPositionVector) - min(data.yPositionVector);
+offset = xSpan./2 - dx;
+xSources = data.sourcePositions( :, 2 )  - offset;
+plot( zSources.*1E3, xSources.*1E3, 'ro' );
+
+% Reverse x-direction to mirror arrangement
+set( gca, 'XDir', 'reverse' );
+
+ylim( [-40, 40] );
+xlim( [0, 80] );
+
+xlabel( 'Distance from Receiver [mm]' );
+ylabel( 'Sensor Position [mm]' );
+title('With Impulse Response' );
 
 % Poster Settings
-pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamap./max(max( abs( asamap ) )) );
-% xlabel( 'Axial Distance [mm]', 'FontSize', 22 );
-% ylabel( 'Transverse Distance [mm]', 'FontSize', 22 );
+pcolor( zAsaPlot.*1E3, xAsaPlot.*1E3, asamapir./max(max( abs( asamapir ) )) );
+xlabel( 'Axial Distance [mm]', 'FontSize', 26 );
+ylabel( 'Transverse Distance [mm]', 'FontSize', 26);
 caxis([0, 1]);
 shading flat;
 plot( zSources.*1E3, xSources.*1E3, 'ro' );
@@ -540,34 +498,20 @@ plot( zSources.*1E3, xSources.*1E3, 'ro' );
 cBarHandle = colorbar;
 
 cBarHandle.Label.String = 'Normalized Intensity';
-cBarHandle.Label.FontSize = 22;
+cBarHandle.Label.FontSize = 26;
 cBarHandle.Label.Interpreter = 'latex';
 cBarHandle.TickLabelInterpreter = 'latex';
 
-% Get profiles at peak value
-[maxValue, maxIndex] = max( asamap(:) );
-[maxRow, maxCol] = ind2sub( size(asamap), maxIndex );
-
-% Axial profile
+% Get axial profile
 figure()
-axialProfile = asamap( :, maxCol );
-axialProfileNorm = axialProfile./max(axialProfile);
-plot( 1E3.*z, axialProfileNorm, 'k' );
-ylim( [0, 1.01] );
-xlabel( 'Distance From Receiver [mm]' );
-set( gca, 'XDir', 'Reverse' );
-ylabel( 'Normalized Intensity' );
-
-fwhm( axialProfileNorm, z.*1E3, 1 );
-
-% Transverse profile
-figure()
-transProfile = asamap( maxRow, : );
-transProfileNorm = transProfile./max(transProfile);
-plot( 1E3.*x, transProfileNorm, 'k' );
-ylim( [0, 1.01] );
-xlabel( 'Transverse Distance [mm]' );
-set( gca, 'XDir', 'Reverse' );
-ylabel( 'Normalized Intensity' );
-
-fwhm( transProfileNorm, z.*1E3, 1 );
+hold all
+middleIndex = find( x > 0, 1 );
+maxValue = max( max( asamap( :,  middleIndex-5:middleIndex + 5 ) ) );
+for cpCount = middleIndex-5:middleIndex + 5
+    centerProfile = asamap( :, cpCount )./maxValue;
+    plot( z, centerProfile + (cpCount - middleIndex).*1.5, 'k' );
+end
+set(gca, 'XDir', 'Reverse' )
+% centerProfileNorm = centerProfile./max(max(centerProfile));
+% plot( z, centerProfileNorm, 'k' );
+% ylim( [0, 1.01] );

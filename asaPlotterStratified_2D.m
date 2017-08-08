@@ -29,7 +29,9 @@ clc;
 disp('Loading file...');
 tic;
 sourceFile = ...
-    '../data/results/oneBubble/stratifiedMedium_sqrt_4000mps_1bub_rec100mm';
+    '../data/results/oneBubble/uniformMedium_1500mps_1bub_4040';
+sourceFile = ...
+    '../data/results/oneBubble/skull/skullData_1bub_10mmoffset.mat';
 % sourceFile = ...
 %     '../data/results/oneBubble/stratifiedMedium_200mps_025mm_1bub';
 data = load(sourceFile);
